@@ -1502,10 +1502,11 @@ const dailyMassBtn=document.getElementById('dailyMassBtn');
 /* ============================ DAILY MASS RSS ============================ */
 const USCCB_RSS_URL='https://www.usccb.org/bible/readings/rss/index.cfm';
 const USCCB_DAILY_URL='https://bible.usccb.org/daily-bible-reading';
-// GitHub Pages serves a same-origin copy of the current official RSS feed.
-// The included GitHub Action refreshes this file automatically each day.
-const DAILY_MASS_SAME_ORIGIN_FEED='./daily-readings.xml';
-const DAILY_MASS_FETCH_TIMEOUT=6500;
+// An owner-supplied same-origin or Cloudflare Worker endpoint can be assigned
+// to window.CPL_DAILY_MASS_PROXY_URL. The public fallback keeps a one-file
+// GitHub Pages deployment usable when the USCCB server does not send CORS headers.
+const DAILY_MASS_PUBLIC_PROXY='https://api.allorigins.win/raw?url=';
+const DAILY_MASS_LOCAL_FEED='./daily-readings.xml';
 let dailyMassState={sectionIndex:0,sections:[],itemTitle:'Daily Mass Readings',itemDate:'',itemLink:USCCB_DAILY_URL,scrollTop:0,loading:false};
 let dailyMassController=null;
 let dailyMassScrollTimer=null;
@@ -1825,59 +1826,46 @@ function formatMassDate(value){
   if(isNaN(d))return new Intl.DateTimeFormat(undefined,{weekday:'long',month:'long',day:'numeric',year:'numeric'}).format(new Date());
   return new Intl.DateTimeFormat(undefined,{weekday:'long',month:'long',day:'numeric',year:'numeric'}).format(d);
 }
-function isHostedWebApp(){return location.protocol==='https:'||location.protocol==='http:';}
 function massFetchCandidates(){
-  const candidates=[];
   const configured=typeof window.CPL_DAILY_MASS_PROXY_URL==='string'?window.CPL_DAILY_MASS_PROXY_URL.trim():'';
-  if(isHostedWebApp())candidates.push({url:DAILY_MASS_SAME_ORIGIN_FEED,label:'the site’s current readings feed'});
+  // 1) The committed feed maintained by the daily GitHub Action. Same-origin on
+  //    GitHub Pages, so no CORS is involved and it loads instantly and offline.
+  const urls=[DAILY_MASS_LOCAL_FEED];
+  // 2) An owner-supplied proxy/Worker, if configured.
   if(configured){
-    const url=configured.includes('{url}')
-      ?configured.replace('{url}',encodeURIComponent(USCCB_RSS_URL))
-      :configured+(configured.includes('?')?'&url=':'?url=')+encodeURIComponent(USCCB_RSS_URL);
-    candidates.push({url,label:'the configured readings service'});
+    if(configured.includes('{url}'))urls.push(configured.replace('{url}',encodeURIComponent(USCCB_RSS_URL)));
+    else urls.push(configured+(configured.includes('?')?'&url=':'?url=')+encodeURIComponent(USCCB_RSS_URL));
   }
-  if(isHostedWebApp())candidates.push({url:USCCB_RSS_URL,label:'the official USCCB feed'});
-  return candidates.filter((item,index,array)=>array.findIndex(other=>other.url===item.url)===index);
+  // 3) Live USCCB (works on desktop; blocked by CORS on most browsers).
+  urls.push(USCCB_RSS_URL);
+  // 4) Last-ditch public proxy.
+  urls.push(DAILY_MASS_PUBLIC_PROXY+encodeURIComponent(USCCB_RSS_URL));
+  return [...new Set(urls)];
 }
-async function fetchTextWithTimeout(url,signal,timeout=DAILY_MASS_FETCH_TIMEOUT){
+async function fetchTextWithTimeout(url,signal,timeout=12000){
   const controller=new AbortController();
-  let timedOut=false;
   const abort=()=>controller.abort();
   if(signal){if(signal.aborted)abort();else signal.addEventListener('abort',abort,{once:true});}
-  const timer=setTimeout(()=>{timedOut=true;controller.abort();},timeout);
+  const timer=setTimeout(abort,timeout);
   try{
     const response=await fetch(url,{signal:controller.signal,cache:'no-store',headers:{Accept:'application/rss+xml, application/xml, text/xml, text/plain, */*'}});
     if(!response.ok)throw new Error(`HTTP ${response.status}`);
     return await response.text();
-  }catch(error){
-    if(timedOut){const timeoutError=new Error('The readings request timed out.');timeoutError.code='TIMEOUT';throw timeoutError;}
-    throw error;
   }finally{
     clearTimeout(timer);
     if(signal)signal.removeEventListener('abort',abort);
   }
 }
 async function loadUSCCBRSS(signal){
-  if(!isHostedWebApp()){
-    const error=new Error('Live Daily Mass readings require the hosted HTTPS version of this app. Android content:// and local file pages cannot reliably retrieve cross-site RSS feeds.');
-    error.code='LOCAL_FILE';
-    throw error;
-  }
   let lastError=null;
-  for(const candidate of massFetchCandidates()){
+  for(const url of massFetchCandidates()){
     try{
-      const text=await fetchTextWithTimeout(candidate.url,signal);
+      const text=await fetchTextWithTimeout(url,signal);
       if(!/<(?:rss|feed)[\s>]/i.test(text))throw new Error('The response was not an RSS document.');
       return text;
-    }catch(error){
-      if(signal&&signal.aborted)throw error;
-      lastError=error;
-    }
+    }catch(error){if(error&&error.name==='AbortError')throw error;lastError=error;}
   }
-  const error=new Error('The hosted readings feed is not available yet. Run the included GitHub workflow once, then refresh the site.');
-  error.code='FEED_NOT_READY';
-  error.cause=lastError;
-  throw error;
+  throw lastError||new Error('Unable to retrieve the RSS feed.');
 }
 function xmlNodeText(node,names){
   for(const name of names){
@@ -1914,10 +1902,10 @@ function sanitizeMassHTML(html,base){
   const allowed=new Set(['A','P','BR','DIV','SPAN','STRONG','B','EM','I','H1','H2','H3','H4','H5','H6','BLOCKQUOTE','UL','OL','LI','SUP','SUB','HR','SMALL']);
   [...root.querySelectorAll('*')].forEach(el=>{
     if(!allowed.has(el.tagName)){el.replaceWith(...el.childNodes);return;}
+    const rawHref=el.tagName==='A'?(el.getAttribute('href')||''):'';
     [...el.attributes].forEach(attr=>el.removeAttribute(attr.name));
     if(el.tagName==='A'){
-      const raw=el.getAttribute('href')||'';
-      el.setAttribute('href',absolutizeMassURL(raw,base));
+      el.setAttribute('href',absolutizeMassURL(rawHref,base));
       el.setAttribute('target','_blank');el.setAttribute('rel','noopener noreferrer');
     }
   });
@@ -1961,7 +1949,7 @@ function dailyMassTop(){
 }
 function renderMassLoading(){
   overlayInner.innerHTML=`${dailyMassTop()}<div class="mass-stage">
-    <div class="mass-state"><div class="mass-spinner" aria-hidden="true"></div><h3>Retrieving Today’s Readings</h3><p>Loading the current official USCCB Daily Readings feed.</p></div>
+    <div class="mass-state"><div class="mass-spinner" aria-hidden="true"></div><h3>Retrieving Today’s Readings</h3><p>Connecting to the official USCCB Daily Readings RSS feed.</p></div>
   </div>`;
   wireMassChrome();
 }
@@ -2030,7 +2018,7 @@ function renderMassItem(item,options={}){
   const content=overlayInner.querySelector('#massContent');
   dailyMassState.sections=discoverMassSections(content);
   const body=overlayInner.querySelector('#massBody');
-  const requested=Math.max(0,Math.min(Number(options.sectionIndex)||0,dailyMassState.sections.length-1));
+  const requested=Math.max(0,Math.min(Number(options.massSectionIndex??options.sectionIndex)||0,dailyMassState.sections.length-1));
   dailyMassState.sectionIndex=requested;
   overlayInner.querySelector('#massPrev').onclick=()=>scrollMassToSection(dailyMassState.sectionIndex-1);
   overlayInner.querySelector('#massNext').onclick=()=>{if(dailyMassState.sectionIndex<dailyMassState.sections.length-1)scrollMassToSection(dailyMassState.sectionIndex+1);};
@@ -2082,14 +2070,10 @@ async function openDailyMass(fromEl,options={}){
     renderMassItem(item,options);
     try{overlayInner.querySelector('#closeBtn').focus({preventScroll:true});}catch(e){}
   }catch(error){
-    if(dailyMassController&&dailyMassController.signal.aborted)return;
+    if(error&&error.name==='AbortError')return;
     if(appView!=='mass')return;
     dailyMassState.loading=false;
-    let message='The Daily Mass feed could not be loaded. You can retry or open the readings directly on the USCCB website.';
-    if(error&&error.code==='LOCAL_FILE')message='This downloaded HTML file is open through Android’s local content viewer. Live Daily Mass readings work from the hosted GitHub Pages website, not from a content:// or file:// address. Open your published website and select Daily Mass there.';
-    else if(error&&error.code==='FEED_NOT_READY')message='The same-origin Daily Mass feed has not been created yet. Add and run the included GitHub workflow once; after that it refreshes automatically and the readings will open normally.';
-    else if(error&&error.code==='TIMEOUT')message='The readings service took too long to respond. Please try again or open the official USCCB readings.';
-    renderMassError(message);
+    renderMassError('The official feed is temporarily unavailable or was blocked by the browser. You can retry or open the readings directly on the USCCB website.');
     saveDailyMassState();
   }
 }
