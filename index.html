@@ -2034,7 +2034,8 @@ function renderMassItem(item,options={}){
   updateMassNavigation();
   requestAnimationFrame(()=>requestAnimationFrame(()=>{
     if(options.restoring&&Number.isFinite(Number(options.massScrollTop))){body.scrollTop=Math.max(0,Number(options.massScrollTop)||0);dailyMassState.sectionIndex=nearestMassSection();updateMassNavigation();}
-    else scrollMassToSection(requested,'auto');
+    else if(requested>0){scrollMassToSection(requested,'auto');}
+    else{body.scrollTop=0;dailyMassState.sectionIndex=0;updateMassNavigation();}
   }));
   saveDailyMassState();
 }
