@@ -3,10 +3,21 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<title>Catholic Prayer Library — Complete Resume</title>
-<meta name="application-name" content="Catholic Prayer Library — Fold State Fix 3">
+<title>Catholic Prayer Library</title>
+<meta name="description" content="An interactive Catholic prayer, Scripture, Rosary, and Divine Mercy Chaplet app, with the daily Mass readings.">
+<meta name="application-name" content="Catholic Prayer Library">
+<meta name="apple-mobile-web-app-title" content="Catholic Prayer Library">
 <meta name="theme-color" content="#05070f">
 <meta name="color-scheme" content="light dark">
+<!-- Link preview (iMessage, WhatsApp, Discord, Facebook, etc.) -->
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Catholic Prayer Library">
+<meta property="og:title" content="Catholic Prayer Library">
+<meta property="og:description" content="An interactive Catholic prayer, Scripture, Rosary, and Divine Mercy Chaplet app, with the daily Mass readings.">
+<meta property="og:url" content="https://nelsonyanes15-alt.github.io/catholic-prayer-library/">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="Catholic Prayer Library">
+<meta name="twitter:description" content="An interactive Catholic prayer, Scripture, Rosary, and Divine Mercy Chaplet app, with the daily Mass readings.">
 <!-- Universal mobile build v3: protected foreground resume across fold activity recreation -->
 <style>
   :root{
@@ -1828,17 +1839,12 @@ function formatMassDate(value){
 }
 function massFetchCandidates(){
   const configured=typeof window.CPL_DAILY_MASS_PROXY_URL==='string'?window.CPL_DAILY_MASS_PROXY_URL.trim():'';
-  // 1) The committed feed maintained by the daily GitHub Action. Same-origin on
-  //    GitHub Pages, so no CORS is involved and it loads instantly and offline.
   const urls=[DAILY_MASS_LOCAL_FEED];
-  // 2) An owner-supplied proxy/Worker, if configured.
   if(configured){
     if(configured.includes('{url}'))urls.push(configured.replace('{url}',encodeURIComponent(USCCB_RSS_URL)));
     else urls.push(configured+(configured.includes('?')?'&url=':'?url=')+encodeURIComponent(USCCB_RSS_URL));
   }
-  // 3) Live USCCB (works on desktop; blocked by CORS on most browsers).
   urls.push(USCCB_RSS_URL);
-  // 4) Last-ditch public proxy.
   urls.push(DAILY_MASS_PUBLIC_PROXY+encodeURIComponent(USCCB_RSS_URL));
   return [...new Set(urls)];
 }
