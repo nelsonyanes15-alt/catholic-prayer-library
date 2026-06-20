@@ -1,0 +1,55 @@
+name: Update Daily Mass Readings Feed
+
+on:
+  schedule:
+    # 05:15 and a retry at 11:15 UTC, in case USCCB blocks the first run.
+    - cron: '15 5 * * *'
+    - cron: '15 11 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: daily-mass-readings
+  cancel-in-progress: true
+
+jobs:
+  update-feed:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install parser dependency
+        shell: bash
+        run: pip install --quiet beautifulsoup4
+
+      - name: Build daily-readings.xml from the USCCB readings page
+        shell: bash
+        run: |
+          # NOTE: no `set -e`. We never want a USCCB hiccup to fail the job and
+          # leave a stale feed committed forever. The Python step always writes
+          # a valid RSS file (real readings when reachable, a graceful fallback
+          # otherwise) and sets STATUS accordingly.
+          set -uo pipefail
+          python3 scripts/build_readings.py
+
+      - name: Commit feed only when it changed
+        shell: bash
+        run: |
+          set -uo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add daily-readings.xml
+          if git diff --cached --quiet; then
+            echo 'Feed has not changed.'
+          else
+            git commit -m 'Update Daily Mass readings feed'
+            git push
+          fi
