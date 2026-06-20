@@ -1,0 +1,47 @@
+name: Update Daily Mass Readings Feed
+
+on:
+  schedule:
+    - cron: '15 5 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: daily-mass-readings
+  cancel-in-progress: true
+
+jobs:
+  update-feed:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Download current official USCCB RSS feed
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --location --fail --silent --show-error \
+            --retry 3 --retry-delay 3 --max-time 45 \
+            --user-agent 'Catholic Prayer Library RSS display' \
+            'https://www.usccb.org/bible/readings/rss/index.cfm' \
+            --output daily-readings.xml.tmp
+
+          grep -Eiq '<(rss|feed)([[:space:]>])' daily-readings.xml.tmp
+          mv daily-readings.xml.tmp daily-readings.xml
+
+      - name: Commit feed only when it changed
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add daily-readings.xml
+          if git diff --cached --quiet; then
+            echo 'Feed has not changed.'
+          else
+            git commit -m 'Update Daily Mass readings feed'
+            git push
+          fi
