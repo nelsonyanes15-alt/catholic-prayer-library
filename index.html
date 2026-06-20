@@ -265,13 +265,21 @@
 
   .count{padding:16px 0 0;font-size:.76rem;color:var(--text-soft);letter-spacing:.08em;
     text-transform:uppercase;font-weight:600}
-  .potd{margin:20px auto 0;display:inline-flex;align-items:center;gap:9px;padding:11px 20px;border-radius:999px;
-    border:1px solid var(--line);background:var(--surface);font-family:var(--sans);font-weight:600;font-size:.84rem;
+  .hero-actions{margin:20px auto 0;display:flex;align-items:stretch;justify-content:center;gap:10px;flex-wrap:wrap}
+  .potd{margin:0;display:inline-flex;align-items:center;justify-content:center;gap:9px;padding:11px 20px;border-radius:999px;
+    border:1px solid var(--line);background:var(--surface);font-family:var(--sans);font-weight:500;font-size:.84rem;
     color:var(--accent);transition:.2s;cursor:pointer;-webkit-tap-highlight-color:transparent}
-  .potd svg{width:17px;height:17px}
-  .potd svg *{stroke:var(--gold-2)}
-  @media(hover:hover){.potd:hover{border-color:var(--gold-2);transform:translateY(-1px)}}
+  .potd svg{width:17px;height:17px;flex:none}
+  .potd svg *{stroke:currentColor}
+  .potd.rosary-shortcut{border-color:var(--line);background:var(--surface);color:var(--accent)}
+  .potd.rosary-shortcut svg{width:18px;height:18px}
+  @media(hover:hover){.potd:hover{border-color:var(--gold-2);transform:translateY(-1px);box-shadow:0 6px 18px rgba(184,134,11,.13)}}
+  .potd:focus-visible{outline:none;border-color:var(--gold-2);box-shadow:0 0 0 3px rgba(212,175,55,.25)}
   .potd:active{transform:translateY(0) scale(.98)}
+  @media(max-width:460px){
+    .hero-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));width:min(100%,350px);padding:0 12px;gap:8px}
+    .hero-actions .potd{min-width:0;padding:10px 8px;font-size:.74rem;line-height:1.18;white-space:normal}
+  }
 
   .empty{text-align:center;padding:70px 20px;color:var(--text-soft);grid-column:1/-1}
   .empty svg{width:54px;height:54px;opacity:.5;margin-bottom:16px}
@@ -621,10 +629,24 @@
     <svg viewBox="0 0 24 24" fill="none"><path d="M12 2c1.5 3 1.5 4.5 0 6-1.5-1.5-1.5-3 0-6Z" fill="url(#gold)"/><path d="M12 8c2.5 1 4 2.5 4 5 0 2.5-2 4.5-4 4.5s-4-2-4-4.5c0-2.5 1.5-4 4-5Z" fill="url(#gold)"/><path d="M6 13c1.5-1 3-1 4 0M18 13c-1.5-1-3-1-4 0" stroke="url(#gold)" stroke-width="1.4" stroke-linecap="round"/><path d="M12 17v5M9 22h6" stroke="url(#gold)" stroke-width="1.6" stroke-linecap="round"/></svg>
     <span class="line r"></span>
   </div>
-  <button class="potd" id="potdBtn" aria-label="Open the prayer of the day">
-    <svg viewBox="0 0 24 24" fill="none"><path d="m12 3 2.4 5.6L20 9l-4 4 1 6-5-2.8L7 19l1-6-4-4 5.6-.4L12 3Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>
-    Prayer of the Day
-  </button>
+  <div class="hero-actions" role="group" aria-label="Featured prayer shortcuts">
+    <button class="potd" id="potdBtn" aria-label="Open the prayer of the day">
+      <svg viewBox="0 0 24 24" fill="none"><path d="m12 3 2.4 5.6L20 9l-4 4 1 6-5-2.8L7 19l1-6-4-4 5.6-.4L12 3Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>
+      Prayer of the Day
+    </button>
+    <button class="potd rosary-shortcut" id="rosaryShortcutBtn" aria-label="Begin a guided Rosary">
+      <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <circle cx="12" cy="7.5" r="3.1" stroke="currentColor" stroke-width="1.6"/>
+        <path d="M12 10.6v2.5M10.5 15.2 12 13l1.5 2.2-1.5 1.9-1.5-1.9Z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/>
+        <circle cx="6.2" cy="5.7" r="1" fill="none" stroke="currentColor" stroke-width="1.4"/>
+        <circle cx="4.7" cy="8.7" r="1" fill="none" stroke="currentColor" stroke-width="1.4"/>
+        <circle cx="17.8" cy="5.7" r="1" fill="none" stroke="currentColor" stroke-width="1.4"/>
+        <circle cx="19.3" cy="8.7" r="1" fill="none" stroke="currentColor" stroke-width="1.4"/>
+        <path d="M12 17.1v4M10.2 19.1h3.6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+      </svg>
+      Guided Rosary
+    </button>
+  </div>
 </header>
 
 <div class="controls">
@@ -1417,6 +1439,7 @@ const overlay=document.getElementById('overlay');
 const overlayInner=document.getElementById('overlayInner');
 const searchEl=document.getElementById('search');
 const potdBtn=document.getElementById('potdBtn');
+const rosaryShortcutBtn=document.getElementById('rosaryShortcutBtn');
 
 /* ============================ WHOLE-APP RESUME STATE ============================ */
 let readingState={itemId:null,showingLatin:false};
@@ -1557,7 +1580,7 @@ function scheduleHomeStateSave(){
   },140);
 }
 
-/* ============================ AUDIO (Web Audio chime) ============================ */
+/* ============================ AUDIO (soft Web Audio chime) ============================ */
 let audioCtx=null;
 function chime(){
   if(muted)return;
@@ -1565,16 +1588,33 @@ function chime(){
     if(!audioCtx)audioCtx=new (window.AudioContext||window.webkitAudioContext)();
     if(audioCtx.state==='suspended')audioCtx.resume();
     const t=audioCtx.currentTime;
-    const partials=[[880,1],[1320,.5],[1760,.28]];
+
+    // A low-volume, warm two-tone chime replaces the previous bright bell.
+    // The slower attack and low-pass filter remove the sharp edge on headphones
+    // and small phone speakers while still confirming that the prayer advanced.
+    const filter=audioCtx.createBiquadFilter();
+    filter.type='lowpass';
+    filter.frequency.setValueAtTime(950,t);
+    filter.Q.setValueAtTime(.45,t);
+
     const master=audioCtx.createGain();
-    master.gain.value=.0001;master.connect(audioCtx.destination);
     master.gain.setValueAtTime(.0001,t);
-    master.gain.exponentialRampToValueAtTime(.5,t+.012);
-    master.gain.exponentialRampToValueAtTime(.0001,t+2.2);
-    partials.forEach(([f,g])=>{
-      const o=audioCtx.createOscillator(),gg=audioCtx.createGain();
-      o.type='sine';o.frequency.value=f;gg.gain.value=g;
-      o.connect(gg);gg.connect(master);o.start(t);o.stop(t+2.3);
+    master.gain.linearRampToValueAtTime(.065,t+.045);
+    master.gain.exponentialRampToValueAtTime(.0001,t+.82);
+    master.connect(filter);
+    filter.connect(audioCtx.destination);
+
+    [[392,.78],[523.25,.22]].forEach(([f,level])=>{
+      const oscillator=audioCtx.createOscillator();
+      const voice=audioCtx.createGain();
+      oscillator.type='sine';
+      oscillator.frequency.setValueAtTime(f,t);
+      oscillator.frequency.exponentialRampToValueAtTime(f*.995,t+.78);
+      voice.gain.setValueAtTime(level,t);
+      oscillator.connect(voice);
+      voice.connect(master);
+      oscillator.start(t);
+      oscillator.stop(t+.86);
     });
   }catch(e){}
 }
@@ -2291,6 +2331,7 @@ searchEl.addEventListener('input',e=>{query=e.target.value;render();scheduleHome
 searchEl.addEventListener('keydown',e=>{if(e.key==='Escape'&&e.target.value){e.target.value='';query='';render();scheduleHomeStateSave();}});
 document.querySelectorAll('.library-tab').forEach(tab=>tab.addEventListener('click',()=>setLibrary(tab.dataset.library)));
 potdBtn.addEventListener('click',function(){const p=prayerOfDay();openPrayer(p.id,this);});
+rosaryShortcutBtn.addEventListener('click',()=>startGuided('rosary'));
 document.getElementById('favFilterBtn').addEventListener('click',function(){
   onlyFavs=!onlyFavs;this.setAttribute('aria-pressed',onlyFavs);this.classList.toggle('active',onlyFavs);render();scheduleHomeStateSave();
 });
