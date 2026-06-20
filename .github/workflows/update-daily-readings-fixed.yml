@@ -1,0 +1,96 @@
+name: Update Daily Mass Readings Feed
+
+on:
+  schedule:
+    - cron: '15 5 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: daily-mass-readings
+  cancel-in-progress: true
+
+jobs:
+  update-feed:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Download and validate official USCCB RSS feed
+        shell: bash
+        run: |
+          set -u
+
+          urls=(
+            "https://www.usccb.org/bible/readings/rss/"
+            "https://www.usccb.org/bible/readings/rss/?format=xml"
+            "https://www.usccb.org/bible/readings/rss/index.cfm"
+            "http://www.usccb.org/bible/readings/rss/"
+          )
+
+          success=0
+          rm -f daily-readings.xml.tmp daily-readings.headers
+
+          for url in "${urls[@]}"; do
+            echo "Trying: $url"
+
+            http_code=$(curl \
+              --location \
+              --silent \
+              --show-error \
+              --compressed \
+              --retry 3 \
+              --retry-delay 3 \
+              --connect-timeout 20 \
+              --max-time 60 \
+              --user-agent 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/126 Safari/537.36' \
+              --header 'Accept: application/rss+xml, application/xml, text/xml;q=0.9, */*;q=0.8' \
+              --header 'Accept-Language: en-US,en;q=0.9' \
+              --header 'Referer: https://www.usccb.org/subscribe/rss' \
+              --dump-header daily-readings.headers \
+              --output daily-readings.xml.tmp \
+              --write-out '%{http_code}' \
+              "$url" || true)
+
+            echo "HTTP status: $http_code"
+
+            if grep -Eiq '<(rss|feed)([[:space:]>])' daily-readings.xml.tmp 2>/dev/null; then
+              echo "Valid RSS/Atom payload received."
+              success=1
+              break
+            fi
+
+            echo "Response was not a valid RSS/Atom document."
+            head -c 300 daily-readings.xml.tmp 2>/dev/null || true
+            echo
+          done
+
+          if [ "$success" -ne 1 ]; then
+            echo "Could not retrieve a valid USCCB RSS feed from any official endpoint."
+            echo "Last response headers:"
+            cat daily-readings.headers 2>/dev/null || true
+            exit 1
+          fi
+
+          mv daily-readings.xml.tmp daily-readings.xml
+
+      - name: Commit feed only when it changed
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+
+          git add daily-readings.xml
+
+          if git diff --cached --quiet; then
+            echo 'Feed has not changed.'
+          else
+            git commit -m 'Update Daily Mass readings feed'
+            git push
+          fi
