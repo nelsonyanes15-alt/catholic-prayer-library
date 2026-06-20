@@ -1,0 +1,16 @@
+<?xml version='1.0' encoding='utf-8'?>
+<rss version="2.0">
+  <channel>
+    <title>Catholic Prayer Library Daily Mass Readings</title>
+    <link>https://bible.usccb.org/</link>
+    <description>Current Daily Mass readings for the Catholic Prayer Library</description>
+    <item>
+      <title>Daily Mass Readings</title>
+      <link>https://bible.usccb.org/bible/readings/062026.cfm</link>
+      <guid isPermaLink="true">https://bible.usccb.org/bible/readings/062026.cfm</guid>
+      <pubDate>Sat, 20 Jun 2026 05:15:00 -0400</pubDate>
+      <description>&lt;h2&gt;Today’s Readings&lt;/h2&gt;&lt;p&gt;The official reading text could not be refreshed automatically on this run.&lt;/p&gt;&lt;p&gt;&lt;a href="https://bible.usccb.org/bible/readings/062026.cfm"&gt;Open today’s readings on the USCCB website&lt;/a&gt;.&lt;/p&gt;</description>
+      <source-status>fallback</source-status>
+    </item>
+  </channel>
+</rss>
