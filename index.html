@@ -3324,9 +3324,8 @@ let preservedHomeState=null;
 // being mistaken for the Home Screen and overwriting an open prayer.
 let appView='boot'; // boot | home | reading | mass | picker | guided
 let appHydrating=true;
-// Take manual control of scroll position; otherwise the browser restores its
-// own remembered scroll on reload and fights restoreHomeScroll, producing a
-// snag/jump the instant you start scrolling after landing.
+// Manual scroll control; otherwise the browser's native restore fights
+// restoreHomeScroll on load and causes a landing snag.
 try{if('scrollRestoration' in history)history.scrollRestoration='manual';}catch(e){}
 function setAppView(view){appView=view;}
 function bestRecord(records){
@@ -3673,17 +3672,14 @@ function formatMassDate(value){
 }
 function massFetchCandidates(){
   const configured=typeof window.CPL_DAILY_MASS_PROXY_URL==='string'?window.CPL_DAILY_MASS_PROXY_URL.trim():'';
-  // 1) The committed feed maintained by the daily GitHub Action. Same-origin on
-  //    GitHub Pages, so no CORS is involved: it loads instantly and offline.
+  // 1) Committed feed from the daily GitHub Action. Same-origin on GitHub Pages
+  //    so no CORS: loads instantly and offline.
   const urls=[DAILY_MASS_LOCAL_FEED];
-  // 2) An owner-supplied proxy / Cloudflare Worker, if configured.
   if(configured){
     if(configured.includes('{url}'))urls.push(configured.replace('{url}',encodeURIComponent(USCCB_RSS_URL)));
     else urls.push(configured+(configured.includes('?')?'&url=':'?url=')+encodeURIComponent(USCCB_RSS_URL));
   }
-  // 3) Live USCCB (works on desktop; CORS-blocked in most browsers).
   urls.push(USCCB_RSS_URL);
-  // 4) Last-ditch public proxy.
   urls.push(DAILY_MASS_PUBLIC_PROXY+encodeURIComponent(USCCB_RSS_URL));
   return [...new Set(urls)];
 }
@@ -3878,8 +3874,18 @@ function renderMassItem(item,options={}){
   },{passive:true});
   updateMassNavigation();
   requestAnimationFrame(()=>requestAnimationFrame(()=>{
-    if(options.restoring&&Number.isFinite(Number(options.massScrollTop))){body.scrollTop=Math.max(0,Number(options.massScrollTop)||0);dailyMassState.sectionIndex=nearestMassSection();updateMassNavigation();}
-    else scrollMassToSection(requested,'auto');
+    if(options.restoring&&Number.isFinite(Number(options.massScrollTop))){
+      body.scrollTop=Math.max(0,Number(options.massScrollTop)||0);
+      dailyMassState.sectionIndex=nearestMassSection();updateMassNavigation();
+    }else if(requested>0){
+      scrollMassToSection(requested,'auto');
+    }else{
+      // Fresh open at the first reading: sit at the top. Do NOT call
+      // scrollMassToSection(0) -- it scrolls section 0's offsetTop into view,
+      // which on Android nudges past the opening lines (article padding/heading
+      // make offsetTop > 0). iOS happened to mask this.
+      body.scrollTop=0;dailyMassState.sectionIndex=0;updateMassNavigation();
+    }
   }));
   saveDailyMassState();
 }
@@ -4757,16 +4763,15 @@ function handleViewportChange(event){
   // events. While a modal is open, ignore those chrome-only changes so the prayer card
   // does not snag or jump. Window resize/orientationchange still refreshes the lock.
   if(hasExitableWindowOpen()&&isVisualViewportEvent)return;
-  // Same problem on the HOME feed: the toolbar sliding during scroll fires
-  // VisualViewport resize events whose height delta is just the toolbar. Running
-  // the full persist + restoreHomeScroll path on each of those is what makes the
-  // home feed jerk. Ignore small (toolbar-sized) changes; only act on a real
-  // layout change (rotation, keyboard, fold) which produces a large delta.
+  // Same problem on the HOME feed: the mobile browser toolbar sliding during
+  // scroll fires VisualViewport resize events whose height delta is only the
+  // toolbar. Running the full persist + restore path on each is what makes the
+  // home feed jerk. Ignore small (toolbar-sized) changes; act only on a real
+  // layout change (rotation, keyboard, fold), which is a large delta.
   if(isVisualViewportEvent&&!appHydrating&&appView==='home'){
     const h=currentViewportHeight();
     if(typeof handleViewportChange._lastH==='number'&&Math.abs(h-handleViewportChange._lastH)<60){
-      handleViewportChange._lastH=h;
-      return;
+      handleViewportChange._lastH=h;return;
     }
     handleViewportChange._lastH=h;
   }
