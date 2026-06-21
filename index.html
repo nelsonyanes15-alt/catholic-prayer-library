@@ -757,7 +757,7 @@
       transition:none!important;
       opacity:1!important;
       visibility:visible!important;
-      touch-action:pan-y;
+      touch-action:none;
       contain:layout paint size;
     }
     html.ios-chrome.cpl-modal-open .overlay-inner{
@@ -785,6 +785,61 @@
     }
     html.ios-chrome.cpl-modal-open .read-banner::after{box-shadow:inset 0 -18px 30px -24px rgba(0,0,0,.55)!important}
   }
+
+
+  /* iPhone Chrome reading-mode fallback.
+     Why this exists:
+     Chrome on iPhone is still driven by iOS/WebKit viewport behavior. When the
+     browser's bottom toolbar appears or hides, fixed fullscreen modals, sticky
+     bars, backdrop blurs, and inner scroll containers can stutter badly at the
+     start of a scroll. For prayer and Scripture cards only, iPhone Chrome uses
+     a normal document-flow reading screen instead of the app-style fixed modal.
+     This lets the browser own the page scroll naturally and avoids the toolbar
+     fighting a fixed overlay. Other browsers keep the polished modal UI. */
+  .ios-reading-view{display:none}
+  html.ios-chrome.ios-reading-active,
+  html.ios-chrome.ios-reading-active body{
+    overflow:auto!important;
+    overscroll-behavior-y:auto!important;
+    position:static!important;
+    width:auto!important;
+    height:auto!important;
+  }
+  html.ios-chrome.ios-reading-active body::before{display:none!important}
+  html.ios-chrome.ios-reading-active header.masthead,
+  html.ios-chrome.ios-reading-active .controls,
+  html.ios-chrome.ios-reading-active main,
+  html.ios-chrome.ios-reading-active footer,
+  html.ios-chrome.ios-reading-active #overlay{display:none!important}
+  html.ios-chrome .ios-reading-view{
+    display:block;
+    min-height:100svh;
+    background:var(--bg);
+    color:var(--text);
+    position:relative;
+    z-index:1;
+    isolation:isolate;
+    contain:paint;
+  }
+  html.ios-chrome .ios-reading-view .modal-bar{
+    position:relative!important;
+    top:auto!important;
+    background:var(--bg)!important;
+    border-bottom:1px solid var(--line);
+    backdrop-filter:none!important;
+    -webkit-backdrop-filter:none!important;
+  }
+  html.ios-chrome .ios-reading-view .read-banner{max-height:190px}
+  html.ios-chrome .ios-reading-view .reading{
+    overflow:visible!important;
+    min-height:auto!important;
+    padding:38px 28px calc(90px + env(safe-area-inset-bottom));
+    -webkit-overflow-scrolling:auto!important;
+  }
+  html.ios-chrome .ios-reading-view .mbtn,
+  html.ios-chrome .ios-reading-view .begin-btn{touch-action:manipulation}
+  html.ios-chrome .ios-reading-view .prayer-text,
+  html.ios-chrome .ios-reading-view .scripture-text{overflow-wrap:anywhere}
 
   @media (prefers-reduced-motion:reduce){
     *{animation-duration:.01ms!important;transition-duration:.08ms!important}
@@ -3135,6 +3190,11 @@ const searchEl=document.getElementById('search');
 const potdBtn=document.getElementById('potdBtn');
 const rosaryShortcutBtn=document.getElementById('rosaryShortcutBtn');
 const dailyMassBtn=document.getElementById('dailyMassBtn');
+const CPL_IS_IOS_CHROME=document.documentElement.classList.contains('ios-chrome');
+let iosChromeReadingView=null;
+let iosChromeReadingHomeRecord=null;
+let iosChromeReadingScrollTimer=null;
+
 
 /* ============================ ANDROID / BROWSER BACK BUTTON ============================ */
 // Android phones expose the system Back button to the browser history stack.
@@ -3144,8 +3204,11 @@ let cplBackStateActive=false;
 let cplCleaningModalHistory=false;
 let cplHistoryCleanupTimer=null;
 
+function hasIOSChromeReadingOpen(){
+  return !!(iosChromeReadingView&&document.body.contains(iosChromeReadingView));
+}
 function hasExitableWindowOpen(){
-  return !!(overlay&&overlay.classList.contains('open'));
+  return !!((overlay&&overlay.classList.contains('open'))||hasIOSChromeReadingOpen());
 }
 let cplBodyLockState=null;
 function setModalScrollLock(locked){
@@ -3209,7 +3272,8 @@ function pushModalBackStateIfNeeded(){
 function closeTopExitableWindowFromBack(){
   if(!hasExitableWindowOpen())return;
   cplBackStateActive=false;
-  closeModalDirect();
+  if(hasIOSChromeReadingOpen())closeIOSChromeReadingViewDirect();
+  else closeModalDirect();
 }
 function cleanModalHistoryAfterDirectClose(shouldClean){
   if(!shouldClean)return;
@@ -3301,7 +3365,7 @@ function homeScrollSnapshot(){
   };
 }
 function baseUIState(){
-  const snap=(overlay&&overlay.classList.contains('open')&&preservedHomeState)?preservedHomeState:homeScrollSnapshot();
+  const snap=(hasExitableWindowOpen()&&preservedHomeState)?preservedHomeState:homeScrollSnapshot();
   return {
     activeLibrary,
     activeCat,
@@ -3333,7 +3397,7 @@ function applyUIState(record){
 }
 function restoreHomeScroll(record){
   const restore=()=>{
-    if(!record||overlay.classList.contains('open'))return;
+    if(!record||hasExitableWindowOpen())return;
     const anchor=record.homeAnchorId?[...grid.querySelectorAll('.card')].find(c=>c.dataset.id===record.homeAnchorId):null;
     if(anchor){
       const controls=document.querySelector('.controls');
@@ -3349,6 +3413,11 @@ function restoreHomeScroll(record){
   setTimeout(restore,140);
 }
 function readingScrollSnapshot(){
+  if(hasIOSChromeReadingOpen()){
+    const max=Math.max(0,document.documentElement.scrollHeight-window.innerHeight);
+    const top=pageScrollTop();
+    return {readingScrollMode:'ios-document',readingScrollTop:top,readingScrollMax:max,readingScrollProgress:max>0?Math.min(1,Math.max(0,top/max)):0};
+  }
   const reading=overlayInner.querySelector('.reading');
   if(!reading)return {readingScrollMode:'overlay',readingScrollTop:0,readingScrollMax:0,readingScrollProgress:0};
   const readingMax=Math.max(0,reading.scrollHeight-reading.clientHeight);
@@ -3365,6 +3434,15 @@ function readingScrollSnapshot(){
 }
 function restoreReadingScroll(record){
   const restore=()=>{
+    if(hasIOSChromeReadingOpen()){
+      if(!record)return;
+      const max=Math.max(0,document.documentElement.scrollHeight-window.innerHeight);
+      let top=0;
+      if(record.readingScrollMode==='ios-document')top=Math.max(0,Number(record.readingScrollTop)||0);
+      else top=Math.max(0,Math.min(1,Number(record.readingScrollProgress)||0))*max;
+      window.scrollTo(0,Math.min(max,top));
+      return;
+    }
     if(!record||!overlay.classList.contains('open')||!overlayInner.querySelector('.reading'))return;
     const reading=overlayInner.querySelector('.reading');
     const readingMax=Math.max(0,reading.scrollHeight-reading.clientHeight);
@@ -3381,10 +3459,10 @@ function restoreReadingScroll(record){
   setTimeout(restore,150);
 }
 function scheduleHomeStateSave(){
-  if(appHydrating||appView!=='home'||overlay.classList.contains('open'))return;
+  if(appHydrating||appView!=='home'||hasExitableWindowOpen())return;
   clearTimeout(homeStateTimer);
   homeStateTimer=setTimeout(()=>{
-    if(!appHydrating&&appView==='home'&&!overlay.classList.contains('open'))saveHomeState();
+    if(!appHydrating&&appView==='home'&&!hasExitableWindowOpen())saveHomeState();
   },140);
 }
 
@@ -3850,6 +3928,122 @@ function modalTop(p,extra=''){
     <button class="mbtn icononly" id="copyBtn" title="Copy" aria-label="Copy">${svg('copy')}</button>
     </div><button class="mbtn icononly" id="closeBtn" aria-label="Close">${svg('close')}</button></div>`;
 }
+
+function iosChromeReadingTop(p,extra=''){
+  return modalTop(p,extra);
+}
+function openIOSChromeReadingView(p,fromEl,options={}){
+  /* iPhone Chrome fallback:
+     Prayer and Scripture cards are rendered as a normal page instead of a fixed
+     fullscreen overlay. This is intentional. On iPhone Chrome, the bottom browser
+     bar can reflow the visual viewport during the first scroll gesture, which
+     makes fixed modals and sticky blurred controls lag or snag. A document-flow
+     reading view avoids that browser-toolbar fight while preserving the same
+     prayer content, buttons, search state, favorites, copy behavior, and Back
+     button close behavior. */
+  if(iosChromeReadingView)closeIOSChromeReadingViewDirect({skipRestore:true});
+  lastFocus=fromEl||document.activeElement;
+  iosChromeReadingHomeRecord=preservedHomeState||homeScrollSnapshot();
+  readingState={itemId:p.id,showingLatin:!!options.showingLatin};
+  const hasLatin=!!(p.library!=='scripture'&&p.latin);
+  const top=iosChromeReadingTop(p,hasLatin?'<button class="mbtn" id="latinBtn"><span>Latin</span></button>':'');
+  let bodyHTML='';
+  if(p.library==='scripture'){
+    const tags=(p.tags||[]).slice(0,5).map(t=>`<span class="related-tag">${escapeHTML(t)}</span>`).join('');
+    bodyHTML=`${top}
+      <div class="read-banner">${plate(p,'m')}</div>
+      <div class="reading">
+        <div class="scripture-kicker">${p.kind} · ${LIFE_THEMES[p.cat].name}</div>
+        <h2 id="readTitle">${p.title}</h2><div class="scripture-ref">${p.reference}</div>
+        <div class="translation-note">${p.translation}</div>
+        <div class="rule r-rule" aria-hidden="true"><span class="line"></span>${svg('fleur')}<span class="line r"></span></div>
+        <div class="note"><b>When to pray</b><br>${p.circumstance}</div>
+        <section class="reading-section"><div class="section-label">Scripture</div><div class="scripture-text">${fmt(p.text)}</div></section>
+        <section class="reading-section"><div class="section-label">Prayer Response</div><div class="scripture-response">${p.response}</div></section>
+        <div class="related-tags">${tags}</div>
+      </div>`;
+  }else{
+    bodyHTML=`${top}
+      <div class="read-banner">${plate(p,'m')}</div>
+      <div class="reading"><h2 id="readTitle">${p.title}</h2>${p.latinTitle?`<div class="r-latin">${p.latinTitle}</div>`:''}
+        <div class="rule r-rule" aria-hidden="true"><span class="line"></span>${svg('fleur')}<span class="line r"></span></div>
+        ${p.note?`<div class="note">${p.note}</div>`:''}<div class="prayer-text" id="prayerText">${fmt(p.text)}</div>
+        ${p.guided?`<div class="begin-guided"><button class="begin-btn" id="beginGuided">${svg('play')} Begin guided prayer</button></div>`:''}</div>`;
+  }
+  iosChromeReadingView=document.createElement('section');
+  iosChromeReadingView.id='iosReadingView';
+  iosChromeReadingView.className='ios-reading-view';
+  iosChromeReadingView.setAttribute('role','dialog');
+  iosChromeReadingView.setAttribute('aria-modal','true');
+  iosChromeReadingView.setAttribute('aria-labelledby','readTitle');
+  iosChromeReadingView.innerHTML=bodyHTML;
+  document.body.appendChild(iosChromeReadingView);
+  document.documentElement.classList.add('ios-reading-active');
+  document.body.classList.add('ios-reading-active');
+  bgInert(true);
+
+  const pt=iosChromeReadingView.querySelector('#prayerText');
+  const latinBtn=hasLatin?iosChromeReadingView.querySelector('#latinBtn'):null;
+  const applyLanguage=()=>{
+    if(!hasLatin||!pt||!latinBtn)return;
+    latinBtn.classList.toggle('on',readingState.showingLatin);
+    latinBtn.querySelector('span').textContent=readingState.showingLatin?'English':'Latin';
+    pt.innerHTML=fmt(readingState.showingLatin?p.latin:p.text);
+  };
+  if(hasLatin){
+    applyLanguage();
+    latinBtn.onclick=function(){
+      readingState.showingLatin=!readingState.showingLatin;
+      applyLanguage();
+      saveReadingState();
+    };
+  }
+  const copyBtn=iosChromeReadingView.querySelector('#copyBtn');
+  if(copyBtn)copyBtn.onclick=()=>{
+    const textForCopy=p.library==='scripture'?`${p.title}\n${p.reference}\n\n${p.text}\n\nPrayer response:\n${p.response}\n\n${p.translation}`:`${p.title}\n\n${(readingState.showingLatin&&p.latin?p.latin:p.text).replace(/<\/?resp>/g,'').replace(/<[^>]+>/g,'')}`;
+    copyText(textForCopy,p.library==='scripture'?'Scripture copied':'Prayer copied');
+  };
+  const favTop=iosChromeReadingView.querySelector('#favTop');
+  if(favTop)favTop.onclick=function(){toggleFav(p.id,this);this.querySelector('span').textContent=favorites.has(p.id)?'Saved':'Save';saveReadingState();};
+  const closeBtn=iosChromeReadingView.querySelector('#closeBtn');
+  if(closeBtn)closeBtn.onclick=closeIOSChromeReadingView;
+  const bg=iosChromeReadingView.querySelector('#beginGuided');
+  if(bg)bg.onclick=()=>{const kind=p.guided;closeIOSChromeReadingViewDirect({skipRestore:true});startGuided(kind);};
+
+  window.scrollTo(0,0);
+  if(options.restoring)restoreReadingScroll(options);
+  window.addEventListener('scroll',scheduleIOSChromeReadingSave,{passive:true});
+  saveReadingState();
+  pushModalBackStateIfNeeded();
+  try{closeBtn&&closeBtn.focus({preventScroll:true});}catch(e){if(closeBtn)closeBtn.focus();}
+}
+function scheduleIOSChromeReadingSave(){
+  if(appView!=='reading'||!hasIOSChromeReadingOpen())return;
+  clearTimeout(iosChromeReadingScrollTimer);
+  iosChromeReadingScrollTimer=setTimeout(()=>saveReadingState(),120);
+}
+function closeIOSChromeReadingView(){
+  const shouldCleanModalHistory=cplBackStateActive&&hasIOSChromeReadingOpen();
+  closeIOSChromeReadingViewDirect();
+  cleanModalHistoryAfterDirectClose(shouldCleanModalHistory);
+}
+function closeIOSChromeReadingViewDirect(options={}){
+  clearTimeout(iosChromeReadingScrollTimer);iosChromeReadingScrollTimer=null;
+  window.removeEventListener('scroll',scheduleIOSChromeReadingSave);
+  const homeRecord=iosChromeReadingHomeRecord||preservedHomeState||saveHomeState({explicit:true,force:true});
+  setAppView('home');
+  readingState={itemId:null,showingLatin:false};
+  if(iosChromeReadingView&&document.body.contains(iosChromeReadingView))iosChromeReadingView.remove();
+  iosChromeReadingView=null;
+  iosChromeReadingHomeRecord=null;
+  document.documentElement.classList.remove('ios-reading-active');
+  document.body.classList.remove('ios-reading-active');
+  bgInert(false);
+  cplBackStateActive=false;
+  if(!options.skipRestore)restoreHomeScroll(homeRecord);
+  if(lastFocus&&lastFocus.focus){try{lastFocus.focus({preventScroll:true});}catch(e){lastFocus.focus();}}
+}
+
 function openPrayer(id,fromEl,options={}){
   if(!options.restoring)invalidateGuidedRestore();
   setAppView('reading');
@@ -3859,6 +4053,7 @@ function openPrayer(id,fromEl,options={}){
   overlayInner.classList.remove('guided-wide','guided-active');
   const p=getItemById(id);if(!p)return;
   lastFocus=fromEl||document.activeElement;
+  if(CPL_IS_IOS_CHROME){openIOSChromeReadingView(p,fromEl,options);return;}
   readingState={itemId:p.id,showingLatin:!!options.showingLatin};
   if(p.library==='scripture')openScripture(p,options);else openTraditional(p,options);
 }
@@ -3889,7 +4084,8 @@ function openScripture(p,options={}){
   finishModalWiring(p,false,options);
 }
 function saveReadingState(){
-  if(!readingState.itemId||!overlay.classList.contains('open')||!overlayInner.querySelector('.reading'))return null;
+  const iosReading=hasIOSChromeReadingOpen();
+  if(!readingState.itemId||(!(overlay.classList.contains('open')&&overlayInner.querySelector('.reading'))&&!iosReading))return null;
   setAppView('reading');
   const scroll=readingScrollSnapshot();
   return writeGuidedRecord(makeGuidedRecord(Object.assign({
@@ -4489,6 +4685,10 @@ modeBtn.addEventListener('click',function(){
 });
 overlay.addEventListener('click',e=>{if(e.target===overlay)closeModal();});
 document.addEventListener('keydown',e=>{
+  if(hasIOSChromeReadingOpen()){
+    if(e.key==='Escape')closeIOSChromeReadingView();
+    return;
+  }
   if(!overlay.classList.contains('open'))return;
   if(e.key==='Escape'){closeModal();return;}
   if(e.key==='Tab'){
@@ -4611,7 +4811,7 @@ document.addEventListener('visibilitychange',()=>{
 if(window.visualViewport){window.visualViewport.addEventListener('resize',handleViewportChange,{passive:true});}
 window.addEventListener('resize',handleViewportChange,{passive:true});
 window.addEventListener('orientationchange',event=>{handleViewportChange(event);setTimeout(refreshLockedModalViewport,280);},{passive:true});
-window.addEventListener('scroll',()=>{if(!overlay.classList.contains('open'))scheduleHomeStateSave();},{passive:true});
+window.addEventListener('scroll',()=>{if(!hasExitableWindowOpen())scheduleHomeStateSave();},{passive:true});
 
 syncViewport();
 updateLibraryUI();updateModeButton();buildPills();render();updateFavBadge();
