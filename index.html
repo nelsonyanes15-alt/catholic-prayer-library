@@ -897,7 +897,7 @@
 
 </style>
 </head>
-<body data-mode="adoration">
+<body data-mode="light">
 
 <!-- hidden SVG defs: gold gradient + sprite -->
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
@@ -966,7 +966,7 @@
         <svg viewBox="0 0 24 24" fill="none"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>
         <span class="badge" id="favBadge" style="display:none">0</span>
       </button>
-      <button class="iconbtn active" id="modeBtn" aria-pressed="true" title="Adoration mode (dark)" aria-label="Toggle adoration mode">
+      <button class="iconbtn" id="modeBtn" aria-pressed="false" title="Light mode" aria-label="Toggle adoration mode">
         <svg viewBox="0 0 24 24" fill="none"><path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M18.4 5.6 17 7M7 17l-1.4 1.4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="12" cy="12" r="4" stroke="currentColor" stroke-width="1.8"/></svg>
       </button>
     </div>
@@ -1044,7 +1044,9 @@ const I = {
   soundOff:'<path d="M4 9v6h4l5 4V5L8 9H4Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="m16 9 5 6M21 9l-5 6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>',
   check:'<path d="M5 12l4 4 10-10" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>'
 };
-const svg=(name,cls)=>`<svg class="${cls||''}" viewBox="0 0 24 24" fill="none" aria-hidden="true">${I[name]}</svg>`;
+const svg=(name,cls,label)=>label
+  ?`<svg class="${cls||''}" viewBox="0 0 24 24" fill="none" role="img" aria-label="${escapeHTML(label)}"><title>${escapeHTML(label)}</title>${I[name]}</svg>`
+  :`<svg class="${cls||''}" viewBox="0 0 24 24" fill="none" aria-hidden="true">${I[name]}</svg>`;
 const corner='<svg class="corner CLS" viewBox="0 0 64 64" fill="none" aria-hidden="true"><path d="M4 4c18 0 34 0 34 14 0 8-7 11-13 8 5 4 14 2 14-7 0-13-14-15-29-15Z" fill="url(#gold)" opacity=".5"/><path d="M4 4v22M4 4h22" stroke="url(#gold)" stroke-width="2.4" stroke-linecap="round"/><circle cx="30" cy="30" r="2.4" fill="url(#gold)"/><path d="M9 9c8 0 16 1 16 9" stroke="url(#gold)" stroke-width="1.6" stroke-linecap="round" opacity=".7"/></svg>';
 
 /* ============== ILLUMINATED PLATES (per-prayer engraved artwork) ============== */
@@ -3189,8 +3191,8 @@ let query='';
 let onlyFavs=false;
 let lastFocus=null;
 let muted=!!readStorage(STORAGE_KEYS.muted,false);
-const savedMode=readStorage(STORAGE_KEYS.mode,'adoration');
-document.body.setAttribute('data-mode',savedMode==='light'?'light':'adoration');
+const savedMode=readStorage(STORAGE_KEYS.mode,'light');
+document.body.setAttribute('data-mode',savedMode==='adoration'?'adoration':'light');
 
 const grid=document.getElementById('grid');
 const pills=document.getElementById('pills');
@@ -3664,17 +3666,12 @@ function updateFavBadge(){const b=document.getElementById('favBadge');b.textCont
 
 /* ============================ DAILY MASS READER ============================ */
 function massDateCode(date=new Date()){
-  // USCCB's liturgical day rolls over at US Eastern midnight, and the committed
-  // feed is built against the Eastern date. Compute the code in Eastern time so
-  // it agrees with the feed regardless of the device's own timezone (otherwise
-  // a phone set west of Eastern can read the previous day's code after midnight).
   try{
-    const parts=new Intl.DateTimeFormat('en-US',{timeZone:'America/New_York',
-      year:'2-digit',month:'2-digit',day:'2-digit'}).formatToParts(date);
-    const get=t=>{const p=parts.find(x=>x.type===t);return p?p.value:'';};
+    const parts=new Intl.DateTimeFormat('en-US',{timeZone:'America/New_York',year:'2-digit',month:'2-digit',day:'2-digit'}).formatToParts(date);
+    const get=t=>{const x=parts.find(z=>z.type===t);return x?x.value:'';};
     const mm=get('month'),dd=get('day'),yy=get('year');
     if(mm&&dd&&yy)return `${mm}${dd}${yy}`;
-  }catch(e){/* fall through to local time */}
+  }catch(e){}
   const mm=String(date.getMonth()+1).padStart(2,'0');
   const dd=String(date.getDate()).padStart(2,'0');
   const yy=String(date.getFullYear()).slice(-2);
@@ -4776,17 +4773,10 @@ function refreshLockedModalViewport(){
 function handleViewportChange(event){
   clearTimeout(viewportTimer);
   const isVisualViewportEvent=!!(event&&window.visualViewport&&event.target===window.visualViewport);
-  // iPhone Chrome shows/hides its bottom toolbar by firing VisualViewport resize/scroll
-  // events. While a modal is open, ignore those chrome-only changes so the prayer card
-  // does not snag or jump. Window resize/orientationchange still refreshes the lock.
   if(hasExitableWindowOpen()&&isVisualViewportEvent)return;
-  // Same on the HOME feed: toolbar slide during scroll fires resize events whose
-  // delta is only the toolbar. Running the heavy path on each makes the feed jerk.
   if(isVisualViewportEvent&&!appHydrating&&appView==='home'){
     const h=currentViewportHeight();
-    if(typeof handleViewportChange._lastH==='number'&&Math.abs(h-handleViewportChange._lastH)<60){
-      handleViewportChange._lastH=h;return;
-    }
+    if(typeof handleViewportChange._lastH==='number'&&Math.abs(h-handleViewportChange._lastH)<60){handleViewportChange._lastH=h;return;}
     handleViewportChange._lastH=h;
   }
   // A newly recreated Fold activity reports several transient viewport sizes.
