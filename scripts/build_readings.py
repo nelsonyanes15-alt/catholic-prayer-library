@@ -3,16 +3,18 @@
 Build daily-readings.xml for the Catholic Prayer Library app.
 
 The USCCB RSS feed only contains a *link* to each day's readings, never the
-reading text itself. So we fetch the actual daily readings PAGE, extract the
-reading blocks, and embed them as escaped HTML inside a single-item RSS feed
-that the app already knows how to parse and sanitize.
+reading text. So we fetch the actual daily readings PAGE for the correct
+US-Eastern date, extract the reading blocks, and embed them as escaped HTML
+inside a single-item RSS feed that the app already knows how to parse and
+sanitize.
 
-This script is intentionally tolerant:
-  * If the network/USCCB blocks us, we still write a valid feed with a
-    fallback message and <source-status>fallback</source-status>, so the
-    committed file is never an invalid or empty document.
-  * The app reads ./daily-readings.xml first (same-origin on GitHub Pages),
-    so a good run here is what users actually see.
+Why US Eastern: the liturgical "today" rolls over at Eastern midnight. Using
+the runner's UTC clock would fetch the wrong day's page during the late-evening
+/ early-morning Eastern window.
+
+Resilience: if the network/USCCB blocks us, we still write a valid feed with a
+fallback message and <source-status>fallback</source-status>, so the committed
+file is never invalid or empty -- and the job exits 0 so it can still commit.
 """
 
 from __future__ import annotations
@@ -20,20 +22,18 @@ import html
 import sys
 import urllib.request
 import urllib.error
-from datetime import datetime, timezone, timedelta
+from datetime import datetime
 from email.utils import format_datetime
 
-# US Eastern: USCCB's day boundary. ET is UTC-5 (standard) / UTC-4 (daylight).
-# A fixed -4 is close enough to pick the right page around the 05:15 UTC run;
-# if you want exact DST handling, swap in zoneinfo (Python 3.9+):
-#   from zoneinfo import ZoneInfo; now = datetime.now(ZoneInfo("America/New_York"))
+# Anchor everything to US Eastern so the date code matches USCCB's day.
 try:
     from zoneinfo import ZoneInfo
     NOW = datetime.now(ZoneInfo("America/New_York"))
-except Exception:  # pragma: no cover - zoneinfo always present on 3.12
-    NOW = datetime.now(timezone(timedelta(hours=-4)))
+except Exception:  # pragma: no cover - zoneinfo ships with 3.9+
+    from datetime import timezone, timedelta
+    NOW = datetime.now(timezone(timedelta(hours=-4)))  # EDT approximation
 
-DATE_CODE = NOW.strftime("%m%d%y")              # e.g. 062026 -> matches the app
+DATE_CODE = NOW.strftime("%m%d%y")  # e.g. 062126 -> matches the app's massDateCode
 PAGE_URL = f"https://bible.usccb.org/bible/readings/{DATE_CODE}.cfm"
 PUB_DATE = format_datetime(NOW)
 OUT_PATH = "daily-readings.xml"
@@ -53,21 +53,12 @@ def fetch(url: str, timeout: int = 60) -> str | None:
 
 
 def extract_readings(page_html: str) -> str:
-    """
-    Pull the reading blocks out of the USCCB daily page.
-
-    USCCB wraps each reading in containers with classes like 'b-verse' /
-    'innerblock'. Site markup changes occasionally, so we try a few strategies
-    and fall back to BeautifulSoup if available. Returns inner HTML (a string)
-    or '' if nothing usable was found.
-    """
-    # Prefer BeautifulSoup when present; it survives messy markup far better.
+    """Pull the reading blocks out of the USCCB daily page."""
     try:
         from bs4 import BeautifulSoup  # type: ignore
         soup = BeautifulSoup(page_html, "html.parser")
         blocks = soup.select("div.b-verse")
         if not blocks:
-            # Newer layouts sometimes use these wrappers:
             blocks = soup.select("div.innerblock, div.content-body, div.readings")
         parts = []
         for b in blocks:
@@ -79,7 +70,6 @@ def extract_readings(page_html: str) -> str:
     except ImportError:
         pass
 
-    # Regex fallback (no external deps). Greedy-but-bounded grab of b-verse divs.
     import re
     matches = re.findall(
         r'<div[^>]*class="[^"]*b-verse[^"]*"[^>]*>(.*?)</div>\s*(?=<div|</div>|$)',
@@ -91,8 +81,6 @@ def extract_readings(page_html: str) -> str:
 
 
 def build_feed(body_html: str, status: str) -> str:
-    # Everything inside <description> must be escaped so the RSS itself stays
-    # well-formed; the app un-escapes and sanitizes it on render.
     escaped_body = html.escape(body_html)
     return f"""<?xml version='1.0' encoding='utf-8'?>
 <rss version="2.0">
@@ -132,12 +120,10 @@ def main() -> int:
         )
         print("::warning::Falling back; no readings extracted.", file=sys.stderr)
 
-    feed = build_feed(body, status)
     with open(OUT_PATH, "w", encoding="utf-8") as f:
-        f.write(feed)
-    print(f"Wrote {OUT_PATH} (status={status})")
-    # Always exit 0: a fallback feed is still a valid, committable file.
-    return 0
+        f.write(build_feed(body, status))
+    print(f"Wrote {OUT_PATH} (status={status}) for date {DATE_CODE}")
+    return 0  # Always succeed: a fallback feed is still committable.
 
 
 if __name__ == "__main__":
