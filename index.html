@@ -724,6 +724,68 @@
     .reading{padding-bottom:calc(78px + env(safe-area-inset-bottom))}
   }
 
+
+  /* iPhone Chrome scroll performance mode.
+     Chrome on iPhone is still WebKit. Its bottom toolbar can trigger expensive
+     repaint work at scroll start, especially with fixed gradients, large
+     backdrop-filter surfaces, sticky blurred bars, and nested fixed modals.
+     This mode favors stable, composited scrolling over decorative blur while
+     preserving the app layout and content. */
+  @supports (-webkit-touch-callout:none){
+    html.ios-chrome body::before{display:none!important}
+    html.ios-chrome .controls,
+    html.ios-chrome .modal-bar,
+    html.ios-chrome .g-top,
+    html.ios-chrome .g-progresswrap,
+    html.ios-chrome .g-nav,
+    html.ios-chrome .mass-nav,
+    html.ios-chrome .mass-progresswrap{
+      backdrop-filter:none!important;
+      -webkit-backdrop-filter:none!important;
+    }
+    html.ios-chrome .controls{background:var(--bg)!important;contain:paint}
+    html.ios-chrome .card{content-visibility:auto;contain-intrinsic-size:300px 330px}
+    html.ios-chrome.cpl-modal-open,
+    html.ios-chrome.cpl-modal-open body{
+      overflow:hidden!important;
+      overscroll-behavior:none!important;
+    }
+    html.ios-chrome.cpl-modal-open .overlay{
+      backdrop-filter:none!important;
+      -webkit-backdrop-filter:none!important;
+      background:#05070f!important;
+      transition:none!important;
+      opacity:1!important;
+      visibility:visible!important;
+      touch-action:pan-y;
+      contain:layout paint size;
+    }
+    html.ios-chrome.cpl-modal-open .overlay-inner{
+      transform:none!important;
+      opacity:1!important;
+      transition:none!important;
+      box-shadow:none!important;
+      border-radius:0!important;
+      contain:layout paint style;
+      -webkit-transform:translateZ(0);
+      transform:translateZ(0);
+    }
+    html.ios-chrome.cpl-modal-open .modal-bar{position:relative!important;background:#05070f!important}
+    html.ios-chrome.cpl-modal-open .reading,
+    html.ios-chrome.cpl-modal-open .picker,
+    html.ios-chrome.cpl-modal-open .mass-body,
+    html.ios-chrome.cpl-modal-open .g-body{
+      -webkit-overflow-scrolling:auto!important;
+      overscroll-behavior-y:contain;
+      touch-action:pan-y;
+      will-change:scroll-position;
+      backface-visibility:hidden;
+      -webkit-transform:translateZ(0);
+      transform:translateZ(0);
+    }
+    html.ios-chrome.cpl-modal-open .read-banner::after{box-shadow:inset 0 -18px 30px -24px rgba(0,0,0,.55)!important}
+  }
+
   @media (prefers-reduced-motion:reduce){
     *{animation-duration:.01ms!important;transition-duration:.08ms!important}
   }
@@ -882,6 +944,14 @@
 <div class="toast" id="toast"><svg viewBox="0 0 24 24" fill="none"><path d="M5 12l4 4 10-10" stroke="url(#gold)" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg><span id="toastMsg"></span></div>
 
 <script>
+
+(function(){
+  const ua=navigator.userAgent||'';
+  const isiOS=/iP(hone|ad|od)/.test(ua)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
+  const isChromeIOS=isiOS&&/CriOS/i.test(ua);
+  if(isiOS)document.documentElement.classList.add('ios-webkit');
+  if(isChromeIOS)document.documentElement.classList.add('ios-chrome');
+})();
 /* ============================ ICONS ============================ */
 const I = {
   cross:'<path d="M14 3h-4v7H3v4h7v7h4v-7h7v-4h-7V3Z" stroke="url(#gold)" stroke-width="2" stroke-linejoin="round"/>',
@@ -3077,10 +3147,53 @@ let cplHistoryCleanupTimer=null;
 function hasExitableWindowOpen(){
   return !!(overlay&&overlay.classList.contains('open'));
 }
+let cplBodyLockState=null;
 function setModalScrollLock(locked){
-  document.documentElement.classList.toggle('cpl-modal-open',!!locked);
-  document.body.classList.toggle('cpl-modal-open',!!locked);
-  document.body.style.overflow=locked?'hidden':'';
+  const root=document.documentElement;
+  const body=document.body;
+  root.classList.toggle('cpl-modal-open',!!locked);
+  body.classList.toggle('cpl-modal-open',!!locked);
+  if(locked){
+    if(cplBodyLockState)return;
+    const scrollY=Math.max(0,window.scrollY||root.scrollTop||body.scrollTop||0);
+    cplBodyLockState={
+      scrollY,
+      rootOverflow:root.style.overflow,
+      rootOverscroll:root.style.overscrollBehavior,
+      bodyOverflow:body.style.overflow,
+      bodyOverscroll:body.style.overscrollBehavior,
+      bodyPosition:body.style.position,
+      bodyTop:body.style.top,
+      bodyLeft:body.style.left,
+      bodyRight:body.style.right,
+      bodyWidth:body.style.width
+    };
+    root.style.overflow='hidden';
+    root.style.overscrollBehavior='none';
+    body.style.overflow='hidden';
+    body.style.overscrollBehavior='none';
+    // iOS Chrome can still scroll the document behind fixed overlays when only
+    // overflow:hidden is used. Freezing the body removes the scroll handoff that
+    // causes the first-swipe snag when Chrome's bottom toolbar appears.
+    body.style.position='fixed';
+    body.style.top='-'+scrollY+'px';
+    body.style.left='0';
+    body.style.right='0';
+    body.style.width='100%';
+    return;
+  }
+  const state=cplBodyLockState;
+  cplBodyLockState=null;
+  root.style.overflow=state?state.rootOverflow:'';
+  root.style.overscrollBehavior=state?state.rootOverscroll:'';
+  body.style.overflow=state?state.bodyOverflow:'';
+  body.style.overscrollBehavior=state?state.bodyOverscroll:'';
+  body.style.position=state?state.bodyPosition:'';
+  body.style.top=state?state.bodyTop:'';
+  body.style.left=state?state.bodyLeft:'';
+  body.style.right=state?state.bodyRight:'';
+  body.style.width=state?state.bodyWidth:'';
+  if(state&&Number.isFinite(state.scrollY))window.scrollTo(0,state.scrollY);
 }
 function pushModalBackStateIfNeeded(){
   if(!hasExitableWindowOpen())return;
@@ -3697,7 +3810,7 @@ async function openDailyMass(fromEl,options={}){
   if(!options.restoring&&!options.preserveView)preservedHomeState=homeScrollSnapshot();
   lastFocus=fromEl||lastFocus||document.activeElement;
   overlayInner.classList.remove('guided-wide','guided-active');
-  overlay.classList.add('open');setModalScrollLock(true);overlay.scrollTop=0;bgInert(true);lockModalViewportHeight();pushModalBackStateIfNeeded();
+  overlay.classList.add('open');setModalScrollLock(true);overlay.scrollTop=0;bgInert(true);lockModalViewportHeight();pushModalBackStateIfNeeded();primeModalScrollContainers();
   dailyMassState.sectionIndex=Math.max(0,Number(options.massSectionIndex)||0);
   dailyMassState.scrollTop=Math.max(0,Number(options.massScrollTop)||0);
   dailyMassState.loading=true;
@@ -3783,8 +3896,24 @@ function saveReadingState(){
     view:'reading',active:true,itemId:readingState.itemId,showingLatin:!!readingState.showingLatin
   },baseUIState(),scroll)));
 }
+
+function primeModalScrollContainers(){
+  // Starting at scrollTop 0 can make iOS Chrome negotiate between the modal
+  // scroller, the locked page, and the browser toolbar on the very first swipe.
+  // A 1px nudge keeps the active modal scroller inside its own boundary without
+  // visibly changing the user's position.
+  requestAnimationFrame(()=>requestAnimationFrame(()=>{
+    if(!hasExitableWindowOpen())return;
+    overlayInner.querySelectorAll('.reading,.picker,#massBody,#gBody').forEach(el=>{
+      try{
+        if(el&&el.scrollTop===0&&el.scrollHeight>el.clientHeight+2)el.scrollTop=1;
+      }catch(e){}
+    });
+  }));
+}
+
 function finishModalWiring(p,hasLatin,options={}){
-  overlay.classList.add('open');setModalScrollLock(true);overlay.scrollTop=0;bgInert(true);lockModalViewportHeight();pushModalBackStateIfNeeded();
+  overlay.classList.add('open');setModalScrollLock(true);overlay.scrollTop=0;bgInert(true);lockModalViewportHeight();pushModalBackStateIfNeeded();primeModalScrollContainers();
   readingState={itemId:p.id,showingLatin:!!(hasLatin&&options.showingLatin)};
   const pt=overlayInner.querySelector('#prayerText');
   const latinBtn=hasLatin?overlayInner.querySelector('#latinBtn'):null;
@@ -4117,7 +4246,7 @@ function renderRosaryPicker(options={}){
   if(!options.restoring)invalidateGuidedRestore();
   setAppView('picker');
   overlay.onscroll=null;
-  overlay.classList.add('open');setModalScrollLock(true);bgInert(true);lockModalViewportHeight();pushModalBackStateIfNeeded();
+  overlay.classList.add('open');setModalScrollLock(true);bgInert(true);lockModalViewportHeight();pushModalBackStateIfNeeded();primeModalScrollContainers();
   clearTimeout(guidedScrollTimer);guidedScrollTimer=null;
   clearTimeout(guidedFitTimer);guidedFitTimer=null;guidedFitGeneration++;
   g={seq:null,idx:0,narrowScrollTop:0};
@@ -4155,7 +4284,7 @@ function runGuided(seq,options={}){
   g.idx=Math.max(0,Math.min(Number(options.startIndex)||0,seq.steps.length-1));
   g.narrowScrollTop=Math.max(0,Number(options.scrollTop)||0);
   const hasFullBeadVisual=usesFullBeadVisual(seq);
-  overlay.classList.add('open');setModalScrollLock(true);bgInert(true);lockModalViewportHeight();pushModalBackStateIfNeeded();
+  overlay.classList.add('open');setModalScrollLock(true);bgInert(true);lockModalViewportHeight();pushModalBackStateIfNeeded();primeModalScrollContainers();
   overlayInner.classList.toggle('guided-wide',hasFullBeadVisual);
   overlayInner.classList.add('guided-active');
   overlayInner.innerHTML=`
