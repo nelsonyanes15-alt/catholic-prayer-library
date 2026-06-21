@@ -11,6 +11,7 @@
 <style>
   :root{
     --app-height:100dvh;
+    --modal-height:var(--app-height);
     /* Marian palette with true gold */
     --navy-900:#0b1531;
     --navy-800:#10204a;
@@ -363,7 +364,7 @@
   .begin-btn:focus-visible{outline:none;box-shadow:0 0 0 4px rgba(212,175,55,.4)}
 
   /* ---------- Guided / step-through ---------- */
-  .overlay-inner.guided-active{height:var(--app-height,100dvh);min-height:0;overflow:hidden}
+  .overlay-inner.guided-active{height:var(--modal-height,var(--app-height,100dvh));min-height:0;overflow:hidden}
   .guided-stage{display:flex;flex-direction:column;height:100%;min-height:0;overflow:hidden}
   .g-top{flex:none;display:flex;justify-content:space-between;align-items:center;padding:14px 16px;
     border-bottom:1px solid var(--line);position:relative;z-index:20;
@@ -374,7 +375,7 @@
     background:color-mix(in srgb,var(--bg) 94%,transparent);
     backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);
     box-shadow:0 8px 24px rgba(0,0,0,.08)}
-  @media(min-width:760px){.overlay-inner.guided-active{height:calc(var(--app-height,100dvh) - 72px)}}
+  @media(min-width:760px){.overlay-inner.guided-active{height:calc(var(--modal-height,var(--app-height,100dvh)) - 72px)}}
   .g-progress{height:5px;border-radius:99px;background:var(--line);overflow:hidden}
   .g-progress span{display:block;height:100%;width:0;background:var(--gold-grad);border-radius:99px;
     transition:width .5s cubic-bezier(.4,0,.2,1)}
@@ -612,8 +613,8 @@
 
 
   /* ---------- Daily Mass reader ---------- */
-  .mass-stage{height:var(--app-height,100dvh);max-height:100dvh;display:flex;flex-direction:column;overflow:hidden;background:var(--bg)}
-  @media(min-width:760px){.mass-stage{height:min(820px,calc(100dvh - 72px));max-height:calc(100dvh - 72px)}}
+  .mass-stage{height:var(--modal-height,var(--app-height,100dvh));max-height:var(--modal-height,100dvh);display:flex;flex-direction:column;overflow:hidden;background:var(--bg)}
+  @media(min-width:760px){.mass-stage{height:min(820px,calc(var(--modal-height,var(--app-height,100dvh)) - 72px));max-height:calc(var(--modal-height,var(--app-height,100dvh)) - 72px)}}
   .mass-header{flex:none;text-align:center;padding:22px 24px 14px;border-bottom:1px solid var(--line);background:var(--bg)}
   .mass-header .r-icon{width:43px;height:43px;margin:0 auto 10px;display:block}
   .mass-eyebrow{font-size:.67rem;letter-spacing:.19em;text-transform:uppercase;font-weight:700;color:var(--text-soft)}
@@ -673,6 +674,16 @@
     background:color-mix(in srgb,var(--surface) 86%,transparent);line-height:1.6}
   footer .copyright-notice strong{display:block;margin-bottom:4px;color:var(--text);
     font-family:var(--serif);font-size:.9rem;font-weight:600}
+
+
+  /* iPhone Chrome toolbar stabilization: open overlays use a locked visible height,
+     while bottom controls get a little breathing room above browser chrome. */
+  .overlay.open{height:var(--modal-height,var(--app-height,100dvh));max-height:var(--modal-height,var(--app-height,100dvh))}
+  @media(max-width:599px){
+    .g-nav{padding-bottom:calc(22px + env(safe-area-inset-bottom))}
+    .mass-nav{padding-bottom:calc(22px + env(safe-area-inset-bottom))}
+    .reading{padding-bottom:calc(78px + env(safe-area-inset-bottom))}
+  }
 
   @media (prefers-reduced-motion:reduce){
     *{animation-duration:.01ms!important;transition-duration:.08ms!important}
@@ -3642,7 +3653,7 @@ async function openDailyMass(fromEl,options={}){
   if(!options.restoring&&!options.preserveView)preservedHomeState=homeScrollSnapshot();
   lastFocus=fromEl||lastFocus||document.activeElement;
   overlayInner.classList.remove('guided-wide','guided-active');
-  overlay.classList.add('open');document.body.style.overflow='hidden';overlay.scrollTop=0;bgInert(true);pushModalBackStateIfNeeded();
+  overlay.classList.add('open');document.body.style.overflow='hidden';overlay.scrollTop=0;bgInert(true);lockModalViewportHeight();pushModalBackStateIfNeeded();
   dailyMassState.sectionIndex=Math.max(0,Number(options.massSectionIndex)||0);
   dailyMassState.scrollTop=Math.max(0,Number(options.massScrollTop)||0);
   dailyMassState.loading=true;
@@ -3729,7 +3740,7 @@ function saveReadingState(){
   },baseUIState(),scroll)));
 }
 function finishModalWiring(p,hasLatin,options={}){
-  overlay.classList.add('open');document.body.style.overflow='hidden';overlay.scrollTop=0;bgInert(true);pushModalBackStateIfNeeded();
+  overlay.classList.add('open');document.body.style.overflow='hidden';overlay.scrollTop=0;bgInert(true);lockModalViewportHeight();pushModalBackStateIfNeeded();
   readingState={itemId:p.id,showingLatin:!!(hasLatin&&options.showingLatin)};
   const pt=overlayInner.querySelector('#prayerText');
   const latinBtn=hasLatin?overlayInner.querySelector('#latinBtn'):null;
@@ -3791,6 +3802,7 @@ function closeModalDirect(){
   }
   cplBackStateActive=false;
   overlay.classList.remove('open');overlayInner.classList.remove('guided-wide','guided-active');
+  clearModalViewportHeight();
   document.body.style.overflow='';bgInert(false);
   overlayInner.innerHTML='';
   restoreHomeScroll(homeRecord);
@@ -4061,7 +4073,7 @@ function renderRosaryPicker(options={}){
   if(!options.restoring)invalidateGuidedRestore();
   setAppView('picker');
   overlay.onscroll=null;
-  overlay.classList.add('open');document.body.style.overflow='hidden';bgInert(true);pushModalBackStateIfNeeded();
+  overlay.classList.add('open');document.body.style.overflow='hidden';bgInert(true);lockModalViewportHeight();pushModalBackStateIfNeeded();
   clearTimeout(guidedScrollTimer);guidedScrollTimer=null;
   clearTimeout(guidedFitTimer);guidedFitTimer=null;guidedFitGeneration++;
   g={seq:null,idx:0,narrowScrollTop:0};
@@ -4099,7 +4111,7 @@ function runGuided(seq,options={}){
   g.idx=Math.max(0,Math.min(Number(options.startIndex)||0,seq.steps.length-1));
   g.narrowScrollTop=Math.max(0,Number(options.scrollTop)||0);
   const hasFullBeadVisual=usesFullBeadVisual(seq);
-  overlay.classList.add('open');document.body.style.overflow='hidden';bgInert(true);pushModalBackStateIfNeeded();
+  overlay.classList.add('open');document.body.style.overflow='hidden';bgInert(true);lockModalViewportHeight();pushModalBackStateIfNeeded();
   overlayInner.classList.toggle('guided-wide',hasFullBeadVisual);
   overlayInner.classList.add('guided-active');
   overlayInner.innerHTML=`
@@ -4334,13 +4346,33 @@ function persistCurrentAppState(){
 }
 
 let viewportTimer=null;
-function syncViewport(){
+function currentViewportHeight(){
   const candidates=[window.innerHeight,document.documentElement.clientHeight,window.visualViewport&&window.visualViewport.height].map(Number).filter(v=>Number.isFinite(v)&&v>0);
-  const h=Math.max(320,Math.floor(candidates.length?Math.min(...candidates):window.innerHeight));
-  document.documentElement.style.setProperty('--app-height',h+'px');
+  return Math.max(320,Math.floor(candidates.length?Math.min(...candidates):window.innerHeight));
 }
-function handleViewportChange(){
+function syncViewport(){
+  document.documentElement.style.setProperty('--app-height',currentViewportHeight()+'px');
+}
+function lockModalViewportHeight(){
+  // Capture the visible height once when a modal opens. This prevents iPhone Chrome's
+  // bottom toolbar from repeatedly resizing prayer cards and guided-prayer controls.
+  document.documentElement.style.setProperty('--modal-height',currentViewportHeight()+'px');
+}
+function clearModalViewportHeight(){
+  document.documentElement.style.removeProperty('--modal-height');
+}
+function refreshLockedModalViewport(){
+  if(!hasExitableWindowOpen())return;
+  lockModalViewportHeight();
+  if(appView==='guided'&&g.seq)requestAnimationFrame(()=>applyResponsiveGuidedLayout());
+}
+function handleViewportChange(event){
   clearTimeout(viewportTimer);
+  const isVisualViewportEvent=!!(event&&window.visualViewport&&event.target===window.visualViewport);
+  // iPhone Chrome shows/hides its bottom toolbar by firing VisualViewport resize/scroll
+  // events. While a modal is open, ignore those chrome-only changes so the prayer card
+  // does not snag or jump. Window resize/orientationchange still refreshes the lock.
+  if(hasExitableWindowOpen()&&isVisualViewportEvent)return;
   // A newly recreated Fold activity reports several transient viewport sizes.
   // Update CSS height, but do not persist or classify the view until hydration
   // has restored the saved screen.
@@ -4390,6 +4422,7 @@ window.addEventListener('pagehide',persistCurrentAppState);
 window.addEventListener('beforeunload',persistCurrentAppState);
 window.addEventListener('pageshow',()=>{
   syncViewport();
+  if(hasExitableWindowOpen())refreshLockedModalViewport();
   if(appHydrating||appView==='boot')restoreGuidedSession();
   else if(appView==='guided'&&g.seq)applyResponsiveGuidedLayout();
 });
@@ -4397,13 +4430,14 @@ document.addEventListener('visibilitychange',()=>{
   if(document.visibilityState==='hidden')persistCurrentAppState();
   else{
     syncViewport();
+    if(hasExitableWindowOpen())refreshLockedModalViewport();
     if(appHydrating||appView==='boot')restoreGuidedSession();
     else if(appView==='guided'&&g.seq)applyResponsiveGuidedLayout();
   }
 });
-if(window.visualViewport){window.visualViewport.addEventListener('resize',handleViewportChange,{passive:true});window.visualViewport.addEventListener('scroll',handleViewportChange,{passive:true});}
+if(window.visualViewport){window.visualViewport.addEventListener('resize',handleViewportChange,{passive:true});}
 window.addEventListener('resize',handleViewportChange,{passive:true});
-window.addEventListener('orientationchange',handleViewportChange,{passive:true});
+window.addEventListener('orientationchange',event=>{handleViewportChange(event);setTimeout(refreshLockedModalViewport,280);},{passive:true});
 window.addEventListener('scroll',()=>{if(!overlay.classList.contains('open'))scheduleHomeStateSave();},{passive:true});
 
 syncViewport();
