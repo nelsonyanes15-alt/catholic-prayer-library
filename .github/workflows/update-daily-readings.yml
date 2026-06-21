@@ -2,9 +2,15 @@ name: Update Daily Mass Readings Feed
 
 on:
   schedule:
-    # 05:15 and a retry at 11:15 UTC, in case USCCB blocks the first run.
-    - cron: '15 5 * * *'
-    - cron: '15 11 * * *'
+    # USCCB's liturgical day rolls over at US Eastern midnight. Run a few times
+    # in the early-Eastern window so the new day's readings are committed before
+    # anyone is likely to open the app. Times are UTC.
+    #   04:30 UTC = 00:30 ET   (just after the day rolls over)
+    #   06:30 UTC = 02:30 ET   (retry if USCCB lagged or blocked the first run)
+    #   12:30 UTC = 08:30 ET   (final safety net for the morning)
+    - cron: '30 4 * * *'
+    - cron: '30 6 * * *'
+    - cron: '30 12 * * *'
   workflow_dispatch:
 
 permissions:
@@ -33,10 +39,9 @@ jobs:
       - name: Build daily-readings.xml from the USCCB readings page
         shell: bash
         run: |
-          # NOTE: no `set -e`. We never want a USCCB hiccup to fail the job and
-          # leave a stale feed committed forever. The Python step always writes
-          # a valid RSS file (real readings when reachable, a graceful fallback
-          # otherwise) and sets STATUS accordingly.
+          # No `set -e`: a USCCB hiccup must never fail the job and leave a stale
+          # feed committed forever. The Python script always writes a valid RSS
+          # file (real readings when reachable, a graceful fallback otherwise).
           set -uo pipefail
           python3 scripts/build_readings.py
 
