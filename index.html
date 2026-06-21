@@ -2329,11 +2329,11 @@ Cleanse your hands, you sinners; and purify your hearts, you double-minded.`,
    response:`Lord, I submit myself to you. Help me resist the devil, draw near to you, and purify my divided heart. Amen.`,
    tags:['devil', 'temptation', 'resist', 'sin', 'repentance', 'spiritual warfare']},
   {id:'scripture-ps4-sleep',cat:'sleep',icon:'star',title:'In Peace I Will Sleep',reference:'Psalm 4:8',kind:'Psalm',
-   circumstance:'For bedtime, insomnia, can’t sleep, nighttime anxiety, and fear in the dark.',
+   circumstance:'For bedtime, insomnia, nighttime anxiety, and fear in the dark.',
    text:`In peace I will both lay myself down and sleep,
 for you, LORD alone, make me live in safety.`,
    response:`LORD, let me lie down in your peace. Quiet the night around me and within me, and keep me safe in your care. Amen.`,
-   tags:['sleep', 'insomnia', 'can’t sleep', 'night anxiety', 'peace', 'bedtime', 'fear']},
+   tags:['sleep', 'insomnia', 'night anxiety', "can't sleep", 'can’t sleep', 'peace', 'bedtime', 'fear']},
   {id:'scripture-ps63-bed',cat:'sleep',icon:'star',title:'When I Remember You on My Bed',reference:'Psalm 63:6–8',kind:'Psalm',
    circumstance:'For loneliness at night, wakefulness, and turning the mind toward God.',
    text:`when I remember you on my bed,
@@ -2498,7 +2498,7 @@ For our light affliction, which is for the moment, works for us more and more ex
    response:`Lord, renew my inner life day by day. Teach me to look beyond what is seen and to hope in the eternal glory you prepare. Amen.`,
    tags:['suffering', 'glory', 'hope', 'unseen', 'perseverance', 'renewal']},
   {id:'scripture-is43-name',cat:'identity',icon:'heart',title:'I Have Called You by Name',reference:'Isaiah 43:1–4',kind:'Prophet',
-   circumstance:'For shame, fear, rejection, loneliness, God loves me, and remembering that God knows you personally.',
+   circumstance:'For shame, fear, rejection, loneliness, and remembering that God knows you personally.',
    text:`But now the LORD who created you, Jacob,
 and he who formed you, Israel, says:
 “Don’t be afraid, for I have redeemed you.
@@ -2516,7 +2516,7 @@ and I have loved you,
 therefore I will give people in your place,
 and nations instead of your life.`,
    response:`LORD, remind me that I am known, redeemed, and called by name. Walk with me through water and fire, and anchor my dignity in your love. Amen.`,
-   tags:['identity', 'shame', 'loneliness', 'fear', 'called by name', 'God loves me', 'loved']},
+   tags:['identity', 'shame', 'loneliness', 'fear', 'called by name', 'loved', 'God loves me']},
   {id:'scripture-ps139-made',cat:'identity',icon:'heart',title:'Fearfully and Wonderfully Made',reference:'Psalm 139:13–18',kind:'Psalm',
    circumstance:'For body anxiety, self-worth, dignity, and remembering God’s intimate care.',
    text:`For you formed my inmost being.
@@ -3018,67 +3018,53 @@ const dailyMassBtn=document.getElementById('dailyMassBtn');
 
 /* ============================ ANDROID / BROWSER BACK BUTTON ============================ */
 // Android phones expose the system Back button to the browser history stack.
-// While an in-app overlay is open, Back should close that overlay just like the
-// visible X button. When no overlay is open, browser Back remains untouched.
+// While an in-app overlay/card is open, the Android/browser Back button closes
+// that overlay. The visible X button remains a normal in-app close control.
 let cplBackStateActive=false;
-let cplClosingFromPopState=false;
-let cplCloseFallbackTimer=null;
+let cplCleaningModalHistory=false;
+let cplHistoryCleanupTimer=null;
 
 function hasExitableWindowOpen(){
   return !!(overlay&&overlay.classList.contains('open'));
-}
-function clearModalBackStateMarker(){
-  try{
-    const root=history.state&&typeof history.state==='object'?Object.assign({},history.state):{};
-    if(root.cplModalOpen){
-      delete root.cplModalOpen;
-      history.replaceState(root,'');
-    }
-  }catch(e){}
 }
 function pushModalBackStateIfNeeded(){
   if(!hasExitableWindowOpen())return;
   try{
     const root=history.state&&typeof history.state==='object'?Object.assign({},history.state):{};
-    if(root.cplModalOpen){cplBackStateActive=true;return;}
     if(cplBackStateActive)return;
     root.cplModalOpen=true;
+    root.cplModalOpenedAt=Date.now();
     history.pushState(root,'');
     cplBackStateActive=true;
   }catch(e){cplBackStateActive=false;}
 }
 function closeTopExitableWindowFromBack(){
   if(!hasExitableWindowOpen())return;
+  cplBackStateActive=false;
   closeModalDirect();
 }
-function closeExitableWindowViaHistoryOrDirectly(){
-  if(!hasExitableWindowOpen()){
+function cleanModalHistoryAfterDirectClose(shouldClean){
+  if(!shouldClean)return;
+  cplBackStateActive=false;
+  try{
+    const root=history.state&&typeof history.state==='object'?history.state:null;
+    if(root&&root.cplModalOpen){
+      cplCleaningModalHistory=true;
+      history.back();
+      clearTimeout(cplHistoryCleanupTimer);
+      cplHistoryCleanupTimer=setTimeout(()=>{cplCleaningModalHistory=false;},300);
+    }
+  }catch(e){cplCleaningModalHistory=false;}
+}
+window.addEventListener('popstate',()=>{
+  clearTimeout(cplHistoryCleanupTimer);
+  if(cplCleaningModalHistory){
+    cplCleaningModalHistory=false;
     cplBackStateActive=false;
     return;
   }
-  if(cplBackStateActive&&!cplClosingFromPopState){
-    try{
-      history.back();
-      clearTimeout(cplCloseFallbackTimer);
-      cplCloseFallbackTimer=setTimeout(()=>{
-        if(hasExitableWindowOpen()){
-          cplBackStateActive=false;
-          closeTopExitableWindowFromBack();
-        }
-      },250);
-      return;
-    }catch(e){}
-  }
-  cplBackStateActive=false;
-  closeTopExitableWindowFromBack();
-}
-window.addEventListener('popstate',()=>{
-  clearTimeout(cplCloseFallbackTimer);
   if(hasExitableWindowOpen()){
-    cplClosingFromPopState=true;
-    cplBackStateActive=false;
-    try{closeTopExitableWindowFromBack();}
-    finally{cplClosingFromPopState=false;}
+    closeTopExitableWindowFromBack();
   }else{
     cplBackStateActive=false;
   }
@@ -3783,10 +3769,12 @@ function finishModalWiring(p,hasLatin,options={}){
   try{overlayInner.querySelector('#closeBtn').focus({preventScroll:true});}catch(e){overlayInner.querySelector('#closeBtn').focus();}
 }
 function closeModal(){
-  closeExitableWindowViaHistoryOrDirectly();
+  const shouldCleanModalHistory=cplBackStateActive&&hasExitableWindowOpen();
+  closeModalDirect();
+  cleanModalHistoryAfterDirectClose(shouldCleanModalHistory);
 }
 function closeModalDirect(){
-  clearTimeout(cplCloseFallbackTimer);cplCloseFallbackTimer=null;
+  clearTimeout(cplHistoryCleanupTimer);cplHistoryCleanupTimer=null;
   const wasSessionView=!!overlayInner.querySelector('.guided-stage,.picker');
   setAppView('home');
   clearTimeout(guidedScrollTimer);guidedScrollTimer=null;
@@ -3801,7 +3789,6 @@ function closeModalDirect(){
     dailyMassState={sectionIndex:0,sections:[],itemTitle:'Daily Mass Readings',itemDate:'',itemLink:USCCB_DAILY_URL,scrollTop:0,loading:false};
     homeRecord=saveHomeState({explicit:true,force:true});
   }
-  clearModalBackStateMarker();
   cplBackStateActive=false;
   overlay.classList.remove('open');overlayInner.classList.remove('guided-wide','guided-active');
   document.body.style.overflow='';bgInert(false);
