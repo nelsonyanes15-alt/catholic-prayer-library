@@ -676,10 +676,44 @@
     font-family:var(--serif);font-size:.9rem;font-weight:600}
 
 
-  /* iPhone Chrome toolbar stabilization: open overlays use a locked visible height,
-     while bottom controls get a little breathing room above browser chrome. */
+  /* iPhone Chrome toolbar stabilization: open overlays use a locked visible height.
+     On phones, the outer overlay is no longer a scroll surface; the inner content
+     area owns scrolling so the first swipe does not snag against browser chrome. */
   .overlay.open{height:var(--modal-height,var(--app-height,100dvh));max-height:var(--modal-height,var(--app-height,100dvh))}
-  @media(max-width:599px){
+  html.cpl-modal-open,body.cpl-modal-open{overflow:hidden;overscroll-behavior:none}
+  @media(max-width:759px){
+    .overlay.open{
+      height:var(--modal-height,var(--app-height,100dvh));
+      max-height:var(--modal-height,var(--app-height,100dvh));
+      overflow:hidden;
+      align-items:stretch;
+      overscroll-behavior:none;
+    }
+    .overlay.open .overlay-inner{
+      height:var(--modal-height,var(--app-height,100dvh));
+      min-height:0;
+      max-height:var(--modal-height,var(--app-height,100dvh));
+      overflow:hidden;
+    }
+    .overlay.open .modal-bar,.overlay.open .read-banner{flex:none}
+    .overlay.open .reading,
+    .overlay.open .picker{
+      flex:1 1 auto;
+      min-height:0;
+      overflow-y:auto;
+      -webkit-overflow-scrolling:touch;
+      overscroll-behavior:contain;
+    }
+    .overlay.open .mass-stage{
+      flex:1 1 auto;
+      min-height:0;
+      height:auto;
+      max-height:none;
+    }
+    .overlay.open .mass-body,
+    .overlay.open .g-body{
+      overscroll-behavior:contain;
+    }
     .g-nav{padding-bottom:calc(22px + env(safe-area-inset-bottom))}
     .mass-nav{padding-bottom:calc(22px + env(safe-area-inset-bottom))}
     .reading{padding-bottom:calc(78px + env(safe-area-inset-bottom))}
@@ -3038,6 +3072,11 @@ let cplHistoryCleanupTimer=null;
 function hasExitableWindowOpen(){
   return !!(overlay&&overlay.classList.contains('open'));
 }
+function setModalScrollLock(locked){
+  document.documentElement.classList.toggle('cpl-modal-open',!!locked);
+  document.body.classList.toggle('cpl-modal-open',!!locked);
+  document.body.style.overflow=locked?'hidden':'';
+}
 function pushModalBackStateIfNeeded(){
   if(!hasExitableWindowOpen())return;
   try{
@@ -3653,7 +3692,7 @@ async function openDailyMass(fromEl,options={}){
   if(!options.restoring&&!options.preserveView)preservedHomeState=homeScrollSnapshot();
   lastFocus=fromEl||lastFocus||document.activeElement;
   overlayInner.classList.remove('guided-wide','guided-active');
-  overlay.classList.add('open');document.body.style.overflow='hidden';overlay.scrollTop=0;bgInert(true);lockModalViewportHeight();pushModalBackStateIfNeeded();
+  overlay.classList.add('open');setModalScrollLock(true);overlay.scrollTop=0;bgInert(true);lockModalViewportHeight();pushModalBackStateIfNeeded();
   dailyMassState.sectionIndex=Math.max(0,Number(options.massSectionIndex)||0);
   dailyMassState.scrollTop=Math.max(0,Number(options.massScrollTop)||0);
   dailyMassState.loading=true;
@@ -3740,7 +3779,7 @@ function saveReadingState(){
   },baseUIState(),scroll)));
 }
 function finishModalWiring(p,hasLatin,options={}){
-  overlay.classList.add('open');document.body.style.overflow='hidden';overlay.scrollTop=0;bgInert(true);lockModalViewportHeight();pushModalBackStateIfNeeded();
+  overlay.classList.add('open');setModalScrollLock(true);overlay.scrollTop=0;bgInert(true);lockModalViewportHeight();pushModalBackStateIfNeeded();
   readingState={itemId:p.id,showingLatin:!!(hasLatin&&options.showingLatin)};
   const pt=overlayInner.querySelector('#prayerText');
   const latinBtn=hasLatin?overlayInner.querySelector('#latinBtn'):null;
@@ -3803,7 +3842,7 @@ function closeModalDirect(){
   cplBackStateActive=false;
   overlay.classList.remove('open');overlayInner.classList.remove('guided-wide','guided-active');
   clearModalViewportHeight();
-  document.body.style.overflow='';bgInert(false);
+  setModalScrollLock(false);bgInert(false);
   overlayInner.innerHTML='';
   restoreHomeScroll(homeRecord);
   if(lastFocus&&lastFocus.focus){try{lastFocus.focus({preventScroll:true});}catch(e){lastFocus.focus();}}
@@ -4073,7 +4112,7 @@ function renderRosaryPicker(options={}){
   if(!options.restoring)invalidateGuidedRestore();
   setAppView('picker');
   overlay.onscroll=null;
-  overlay.classList.add('open');document.body.style.overflow='hidden';bgInert(true);lockModalViewportHeight();pushModalBackStateIfNeeded();
+  overlay.classList.add('open');setModalScrollLock(true);bgInert(true);lockModalViewportHeight();pushModalBackStateIfNeeded();
   clearTimeout(guidedScrollTimer);guidedScrollTimer=null;
   clearTimeout(guidedFitTimer);guidedFitTimer=null;guidedFitGeneration++;
   g={seq:null,idx:0,narrowScrollTop:0};
@@ -4111,7 +4150,7 @@ function runGuided(seq,options={}){
   g.idx=Math.max(0,Math.min(Number(options.startIndex)||0,seq.steps.length-1));
   g.narrowScrollTop=Math.max(0,Number(options.scrollTop)||0);
   const hasFullBeadVisual=usesFullBeadVisual(seq);
-  overlay.classList.add('open');document.body.style.overflow='hidden';bgInert(true);lockModalViewportHeight();pushModalBackStateIfNeeded();
+  overlay.classList.add('open');setModalScrollLock(true);bgInert(true);lockModalViewportHeight();pushModalBackStateIfNeeded();
   overlayInner.classList.toggle('guided-wide',hasFullBeadVisual);
   overlayInner.classList.add('guided-active');
   overlayInner.innerHTML=`
