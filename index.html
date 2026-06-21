@@ -3,8 +3,18 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<title>Catholic Prayer Library — Complete Resume</title>
-<meta name="application-name" content="Catholic Prayer Library — Fold State Fix 3">
+<title>Catholic Prayer Library</title>
+<meta name="description" content="An interactive Catholic prayer, Scripture, Rosary, and Divine Mercy Chaplet app, with the daily Mass readings.">
+<meta name="application-name" content="Catholic Prayer Library">
+<meta name="apple-mobile-web-app-title" content="Catholic Prayer Library">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Catholic Prayer Library">
+<meta property="og:title" content="Catholic Prayer Library">
+<meta property="og:description" content="An interactive Catholic prayer, Scripture, Rosary, and Divine Mercy Chaplet app, with the daily Mass readings.">
+<meta property="og:url" content="https://nelsonyanes15-alt.github.io/catholic-prayer-library/">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="Catholic Prayer Library">
+<meta name="twitter:description" content="An interactive Catholic prayer, Scripture, Rosary, and Divine Mercy Chaplet app, with the daily Mass readings.">
 <meta name="theme-color" content="#05070f">
 <meta name="color-scheme" content="light dark">
 <!-- Universal mobile build v3: protected foreground resume across fold activity recreation -->
@@ -625,7 +635,7 @@
   .mass-progress span{display:block;height:100%;width:0;border-radius:99px;background:var(--gold-grad);transition:width .35s}
   .mass-position{display:flex;align-items:center;justify-content:space-between;gap:14px;margin-top:7px;color:var(--text-soft);font-size:.72rem;font-weight:600;letter-spacing:.035em}
   .mass-position strong{color:var(--accent);font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .mass-body{flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:26px 27px 54px;scroll-behavior:smooth;overscroll-behavior:contain}
+  .mass-body{flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:26px 27px 54px;overscroll-behavior:contain}
   @media(min-width:760px){.mass-body{padding:34px 58px 62px}}
   .mass-content{max-width:62ch;margin:0 auto;font-family:var(--serif);font-size:clamp(1.08rem,2.35vw,1.28rem);line-height:1.78;color:var(--text)}
   .mass-content h1,.mass-content h2,.mass-content h3,.mass-content h4,.mass-content h5,.mass-content h6,
@@ -3324,8 +3334,6 @@ let preservedHomeState=null;
 // being mistaken for the Home Screen and overwriting an open prayer.
 let appView='boot'; // boot | home | reading | mass | picker | guided
 let appHydrating=true;
-// Manual scroll control; otherwise the browser's native restore fights
-// restoreHomeScroll on load and causes a landing snag.
 try{if('scrollRestoration' in history)history.scrollRestoration='manual';}catch(e){}
 function setAppView(view){appView=view;}
 function bestRecord(records){
@@ -3656,6 +3664,17 @@ function updateFavBadge(){const b=document.getElementById('favBadge');b.textCont
 
 /* ============================ DAILY MASS READER ============================ */
 function massDateCode(date=new Date()){
+  // USCCB's liturgical day rolls over at US Eastern midnight, and the committed
+  // feed is built against the Eastern date. Compute the code in Eastern time so
+  // it agrees with the feed regardless of the device's own timezone (otherwise
+  // a phone set west of Eastern can read the previous day's code after midnight).
+  try{
+    const parts=new Intl.DateTimeFormat('en-US',{timeZone:'America/New_York',
+      year:'2-digit',month:'2-digit',day:'2-digit'}).formatToParts(date);
+    const get=t=>{const p=parts.find(x=>x.type===t);return p?p.value:'';};
+    const mm=get('month'),dd=get('day'),yy=get('year');
+    if(mm&&dd&&yy)return `${mm}${dd}${yy}`;
+  }catch(e){/* fall through to local time */}
   const mm=String(date.getMonth()+1).padStart(2,'0');
   const dd=String(date.getDate()).padStart(2,'0');
   const yy=String(date.getFullYear()).slice(-2);
@@ -3672,8 +3691,6 @@ function formatMassDate(value){
 }
 function massFetchCandidates(){
   const configured=typeof window.CPL_DAILY_MASS_PROXY_URL==='string'?window.CPL_DAILY_MASS_PROXY_URL.trim():'';
-  // 1) Committed feed from the daily GitHub Action. Same-origin on GitHub Pages
-  //    so no CORS: loads instantly and offline.
   const urls=[DAILY_MASS_LOCAL_FEED];
   if(configured){
     if(configured.includes('{url}'))urls.push(configured.replace('{url}',encodeURIComponent(USCCB_RSS_URL)));
@@ -3734,7 +3751,11 @@ function selectTodayMassItem(xmlText){
     parsed.find(item=>sameLocalDay(new Date(item.pubDate),today))||parsed[0];
 }
 function absolutizeMassURL(value,base){
-  try{return new URL(value,base||USCCB_DAILY_URL).href;}catch(e){return '#';}
+  try{
+    const u=new URL(value,base||USCCB_DAILY_URL);
+    if(u.protocol!=='http:'&&u.protocol!=='https:')return '#';
+    return u.href;
+  }catch(e){return '#';}
 }
 function sanitizeMassHTML(html,base){
   const doc=new DOMParser().parseFromString(`<main id="massRoot">${html||''}</main>`,'text/html');
@@ -3880,10 +3901,6 @@ function renderMassItem(item,options={}){
     }else if(requested>0){
       scrollMassToSection(requested,'auto');
     }else{
-      // Fresh open at the first reading: sit at the top. Do NOT call
-      // scrollMassToSection(0) -- it scrolls section 0's offsetTop into view,
-      // which on Android nudges past the opening lines (article padding/heading
-      // make offsetTop > 0). iOS happened to mask this.
       body.scrollTop=0;dailyMassState.sectionIndex=0;updateMassNavigation();
     }
   }));
@@ -4763,11 +4780,8 @@ function handleViewportChange(event){
   // events. While a modal is open, ignore those chrome-only changes so the prayer card
   // does not snag or jump. Window resize/orientationchange still refreshes the lock.
   if(hasExitableWindowOpen()&&isVisualViewportEvent)return;
-  // Same problem on the HOME feed: the mobile browser toolbar sliding during
-  // scroll fires VisualViewport resize events whose height delta is only the
-  // toolbar. Running the full persist + restore path on each is what makes the
-  // home feed jerk. Ignore small (toolbar-sized) changes; act only on a real
-  // layout change (rotation, keyboard, fold), which is a large delta.
+  // Same on the HOME feed: toolbar slide during scroll fires resize events whose
+  // delta is only the toolbar. Running the heavy path on each makes the feed jerk.
   if(isVisualViewportEvent&&!appHydrating&&appView==='home'){
     const h=currentViewportHeight();
     if(typeof handleViewportChange._lastH==='number'&&Math.abs(h-handleViewportChange._lastH)<60){
