@@ -679,15 +679,20 @@
   /* iPhone Chrome toolbar stabilization: open overlays use a locked visible height.
      On phones, the outer overlay is no longer a scroll surface; the inner content
      area owns scrolling so the first swipe does not snag against browser chrome. */
-  .overlay.open{height:var(--modal-height,var(--app-height,100dvh));max-height:var(--modal-height,var(--app-height,100dvh))}
+  /* Keep the fixed overlay itself full-bleed. Do not cap the overlay backdrop to
+     --modal-height; on iPhone Chrome the visual viewport can be shorter than the
+     layout viewport, which lets the home/card grid peek through at the bottom.
+     Only the inner modal window is height-locked. */
+  .overlay.open{overflow:hidden}
   html.cpl-modal-open,body.cpl-modal-open{overflow:hidden;overscroll-behavior:none}
   @media(max-width:759px){
     .overlay.open{
-      height:var(--modal-height,var(--app-height,100dvh));
-      max-height:var(--modal-height,var(--app-height,100dvh));
+      top:0;right:0;bottom:-180px;left:0;
+      min-height:calc(var(--modal-height,var(--app-height,100dvh)) + 180px);
       overflow:hidden;
-      align-items:stretch;
+      align-items:flex-start;
       overscroll-behavior:none;
+      background-color:#05070f;
     }
     .overlay.open .overlay-inner{
       height:var(--modal-height,var(--app-height,100dvh));
