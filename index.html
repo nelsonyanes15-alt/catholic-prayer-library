@@ -3309,6 +3309,7 @@ const USCCB_DAILY_URL='https://bible.usccb.org/daily-bible-reading';
 // to window.CPL_DAILY_MASS_PROXY_URL. The public fallback keeps a one-file
 // GitHub Pages deployment usable when the USCCB server does not send CORS headers.
 const DAILY_MASS_PUBLIC_PROXY='https://api.allorigins.win/raw?url=';
+const DAILY_MASS_LOCAL_FEED='./daily-readings.xml';
 let dailyMassState={sectionIndex:0,sections:[],itemTitle:'Daily Mass Readings',itemDate:'',itemLink:USCCB_DAILY_URL,scrollTop:0,loading:false};
 let dailyMassController=null;
 let dailyMassScrollTimer=null;
@@ -3323,6 +3324,10 @@ let preservedHomeState=null;
 // being mistaken for the Home Screen and overwriting an open prayer.
 let appView='boot'; // boot | home | reading | mass | picker | guided
 let appHydrating=true;
+// Take manual control of scroll position; otherwise the browser restores its
+// own remembered scroll on reload and fights restoreHomeScroll, producing a
+// snag/jump the instant you start scrolling after landing.
+try{if('scrollRestoration' in history)history.scrollRestoration='manual';}catch(e){}
 function setAppView(view){appView=view;}
 function bestRecord(records){
   const valid=(records||[]).filter(validGuidedRecord);
@@ -3668,11 +3673,17 @@ function formatMassDate(value){
 }
 function massFetchCandidates(){
   const configured=typeof window.CPL_DAILY_MASS_PROXY_URL==='string'?window.CPL_DAILY_MASS_PROXY_URL.trim():'';
-  const urls=[USCCB_RSS_URL];
+  // 1) The committed feed maintained by the daily GitHub Action. Same-origin on
+  //    GitHub Pages, so no CORS is involved: it loads instantly and offline.
+  const urls=[DAILY_MASS_LOCAL_FEED];
+  // 2) An owner-supplied proxy / Cloudflare Worker, if configured.
   if(configured){
     if(configured.includes('{url}'))urls.push(configured.replace('{url}',encodeURIComponent(USCCB_RSS_URL)));
     else urls.push(configured+(configured.includes('?')?'&url=':'?url=')+encodeURIComponent(USCCB_RSS_URL));
   }
+  // 3) Live USCCB (works on desktop; CORS-blocked in most browsers).
+  urls.push(USCCB_RSS_URL);
+  // 4) Last-ditch public proxy.
   urls.push(DAILY_MASS_PUBLIC_PROXY+encodeURIComponent(USCCB_RSS_URL));
   return [...new Set(urls)];
 }
@@ -4746,6 +4757,19 @@ function handleViewportChange(event){
   // events. While a modal is open, ignore those chrome-only changes so the prayer card
   // does not snag or jump. Window resize/orientationchange still refreshes the lock.
   if(hasExitableWindowOpen()&&isVisualViewportEvent)return;
+  // Same problem on the HOME feed: the toolbar sliding during scroll fires
+  // VisualViewport resize events whose height delta is just the toolbar. Running
+  // the full persist + restoreHomeScroll path on each of those is what makes the
+  // home feed jerk. Ignore small (toolbar-sized) changes; only act on a real
+  // layout change (rotation, keyboard, fold) which produces a large delta.
+  if(isVisualViewportEvent&&!appHydrating&&appView==='home'){
+    const h=currentViewportHeight();
+    if(typeof handleViewportChange._lastH==='number'&&Math.abs(h-handleViewportChange._lastH)<60){
+      handleViewportChange._lastH=h;
+      return;
+    }
+    handleViewportChange._lastH=h;
+  }
   // A newly recreated Fold activity reports several transient viewport sizes.
   // Update CSS height, but do not persist or classify the view until hydration
   // has restored the saved screen.
